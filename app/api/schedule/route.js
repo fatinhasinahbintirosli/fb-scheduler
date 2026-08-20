@@ -1,92 +1,126 @@
-import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 
-export async function POST(request) {
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method Not Allowed' });
+  }
+
+  const { pageIds, message, imageUrl, firstComment } = req.body;
+
+  if (!pageIds || !Array.isArray(pageIds) || pageIds.length === 0) {
+    return res.status(400).json({ error: 'Sila pilih sekurang-kurangnya satu Facebook Page.' });
+  }
+
   try {
-    const { pages, message, mediaUrl, commentText, commentImageUrl } = await request.json();
-    const results = [];
+    // 1. Dapatkan senarai token daripada Supabase
+    const { data: pages, error: dbError } = await supabase
+      .from('pages')
+      .select('page_id, page_name, access_token')
+      .in('page_id', pageIds);
 
-    for (const page of pages) {
-      const pageId = page.page_id;
-      const accessToken = page.access_token;
-
-      let targetCommentId = null;
-
-      // 1. Pos Utama (Gambar atau Teks)
-      if (mediaUrl) {
-        const photoParams = new URLSearchParams();
-        photoParams.append('access_token', accessToken);
-        photoParams.append('url', mediaUrl);
-        if (message) photoParams.append('caption', message);
-
-        const photoRes = await fetch(`https://graph.facebook.com/v26.0/${pageId}/photos`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: photoParams.toString()
-        });
-        const photoData = await photoRes.json();
-
-        if (photoData.error) {
-          results.push({ page: page.page_name, success: false, error: photoData.error.message });
-          continue;
-        }
-
-        // Untuk gambar, komen dihantar terus ke ID foto
-        targetCommentId = photoData.id;
-      } else {
-        const feedParams = new URLSearchParams();
-        feedParams.append('access_token', accessToken);
-        if (message) feedParams.append('message', message);
-
-        const feedRes = await fetch(`https://graph.facebook.com/v26.0/${pageId}/feed`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: feedParams.toString()
-        });
-        const feedData = await feedRes.json();
-
-        if (feedData.error) {
-          results.push({ page: page.page_name, success: false, error: feedData.error.message });
-          continue;
-        }
-
-        targetCommentId = feedData.id;
-      }
-
-      // 2. Pos Auto First Comment
-      let commentSuccess = true;
-      let commentErrorMsg = null;
-
-      if (targetCommentId && (commentText || commentImageUrl)) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-
-        const commentParams = new URLSearchParams();
-        commentParams.append('access_token', accessToken);
-        if (commentText) commentParams.append('message', commentText);
-        if (commentImageUrl) commentParams.append('attachment_url', commentImageUrl);
-
-        const commentRes = await fetch(`https://graph.facebook.com/v26.0/${targetCommentId}/comments`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: commentParams.toString()
-        });
-        const commentData = await commentRes.json();
-
-        if (commentData.error) {
-          commentSuccess = false;
-          commentErrorMsg = commentData.error.message;
-        }
-      }
-
-      results.push({
-        page: page.page_name,
-        success: true,
-        commentSuccess: commentSuccess,
-        commentError: commentErrorMsg
-      });
+    if (dbError || !pages || pages.length === 0) {
+      return res.status(500).json({ error: 'Gagal mendapatkan data Page daripada database.' });
     }
 
-    return NextResponse.json({ success: true, results });
+    const results = [];
+
+    // 2. Loop dan hantar posting ke setiap Page
+    for (const page of pages) {
+      try {
+        let postEndpoint = `https://graph.facebook.com/v26.0/${page.page_id}/feed`;
+        let postPayload = {
+          message: message,
+          access_token: page.access_token
+        };
+
+        // Jika terdapat URL Gambar, tukar ke endpoint photos
+        if (imageUrl) {
+          postEndpoint = `https://graph.facebook.com/v26.0/${page.page_id}/photos`;
+          postPayload = {
+            url: imageUrl,
+            caption: message,
+            access_token: page.access_token
+          };
+        }
+
+        // Hantar Post Utama
+        const postRes = await fetch(postEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(postPayload)
+        });
+
+        const postData = await postRes.json();
+
+        if (!postRes.ok || postData.error) {
+          console.error(`Ralat pos ke ${page.page_name}:`, postData.error);
+          results.push({
+            page: page.page_name,
+            success: false,
+            error: postData.error?.message || 'Gagal pos'
+          });
+          continue;
+        }
+
+        // 3. Logik Menghantar First Comment
+        let commentSuccess = false;
+        let commentError = null;
+
+        if (firstComment && firstComment.trim() !== '') {
+          // Beri jeda 2 saat supaya Facebook selesai indeks pos/gambar
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+
+          // UTAMAKAN post_id jika pos bergambar, fallback kepada id biasa
+          const targetCommentId = postData.post_id || postData.id;
+
+          const commentRes = await fetch(
+            `https://graph.facebook.com/v26.0/${targetCommentId}/comments`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                message: firstComment,
+                access_token: page.access_token
+              })
+            }
+          );
+
+          const commentData = await commentRes.json();
+
+          if (commentRes.ok && !commentData.error) {
+            commentSuccess = true;
+          } else {
+            console.error(`Ralat komen di ${page.page_name}:`, commentData.error);
+            commentError = commentData.error?.message || 'Gagal komen';
+          }
+        }
+
+        results.push({
+          page: page.page_name,
+          success: true,
+          postId: postData.post_id || postData.id,
+          commentSuccess: firstComment ? commentSuccess : null,
+          commentError: commentError
+        });
+
+      } catch (err) {
+        console.error(`Exception pada ${page.page_name}:`, err);
+        results.push({
+          page: page.page_name,
+          success: false,
+          error: err.message
+        });
+      }
+    }
+
+    return res.status(200).json({ results });
+
   } catch (error) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error('Server error:', error);
+    return res.status(500).json({ error: error.message || 'Ralat dalaman server.' });
   }
 }
