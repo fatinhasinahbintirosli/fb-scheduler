@@ -19,6 +19,7 @@ export default function Home() {
   // State Jadual Pos
   const [postMode, setPostMode] = useState('now'); // 'now' atau 'schedule'
   const [scheduledDateTime, setScheduledDateTime] = useState('');
+  const [scheduledPosts, setScheduledPosts] = useState([]);
 
   const [loading, setLoading] = useState(false);
   const [fetchingPages, setFetchingPages] = useState(true);
@@ -28,23 +29,40 @@ export default function Home() {
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const supabase = createClient(supabaseUrl, supabaseKey);
 
+  // Fungsi untuk muat turun senarai Pages dan Pos Berjadual
   useEffect(() => {
-    async function fetchPages() {
+    async function fetchData() {
       try {
-        const { data, error } = await supabase
+        const { data: pagesData, error: pagesError } = await supabase
           .from('pages')
           .select('page_id, page_name')
           .order('page_name', { ascending: true });
 
-        if (error) throw error;
-        setPages(data || []);
+        if (pagesError) throw pagesError;
+        setPages(pagesData || []);
       } catch (err) {
         console.error('Ralat memuatkan senarai Page:', err);
       } finally {
         setFetchingPages(false);
       }
     }
-    fetchPages();
+
+    async function fetchScheduledPosts() {
+      try {
+        const { data: postsData, error: postsError } = await supabase
+          .from('scheduled_posts')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (postsError) throw postsError;
+        setScheduledPosts(postsData || []);
+      } catch (err) {
+        console.error('Ralat memuatkan senarai pos berjadual:', err);
+      }
+    }
+
+    fetchData();
+    fetchScheduledPosts();
   }, []);
 
   const uploadToStorage = async (file) => {
@@ -173,6 +191,14 @@ export default function Home() {
       setFirstComment('');
       setCommentImageFile(null);
       setScheduledDateTime('');
+
+      // Refresh semula senarai pos berjadual selepas hantar
+      const { data: refreshedPosts } = await supabase
+        .from('scheduled_posts')
+        .select('*')
+        .order('created_at', { ascending: false });
+      setScheduledPosts(refreshedPosts || []);
+
     } catch (err) {
       alert(`Ralat: ${err.message}`);
     } finally {
@@ -182,7 +208,7 @@ export default function Home() {
   };
 
   return (
-    <main style={{ maxWidth: '750px', margin: '40px auto', padding: '24px', fontFamily: 'system-ui, sans-serif', backgroundColor: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+    <main style={{ maxWidth: '850px', margin: '40px auto', padding: '24px', fontFamily: 'system-ui, sans-serif', backgroundColor: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
       <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px', color: '#1877f2' }}>Facebook Post & Video Scheduler</h1>
       <p style={{ color: '#65676b', marginBottom: '24px', fontSize: '14px' }}>Hantar atau jadualkan pos serentak ke semua Facebook Page.</p>
 
@@ -346,6 +372,48 @@ export default function Home() {
           {loading ? (uploadStatus || 'Sedang Memproses...') : (postMode === 'schedule' ? 'Jadualkan Pos' : 'Hantar Pos Sekarang')}
         </button>
       </form>
+
+      {/* Bahagian Paparan Senarai Pos Berjadual */}
+      <div style={{ marginTop: '40px', borderTop: '2px solid #eee', paddingTop: '24px' }}>
+        <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '16px', color: '#333' }}>Senarai Pos Dijadualkan</h2>
+        
+        {scheduledPosts.length === 0 ? (
+          <p style={{ fontSize: '13px', color: '#777' }}>Tiada rekod pos berjadual setakat ini.</p>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#f8f9fa', textAlign: 'left', borderBottom: '2px solid #ddd' }}>
+                  <th style={{ padding: '10px' }}>Mesej / Kapsyen</th>
+                  <th style={{ padding: '10px' }}>Masa Sasaran (Scheduled At)</th>
+                  <th style={{ padding: '10px' }}>Masa Dibuat (Created At)</th>
+                  <th style={{ padding: '10px' }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scheduledPosts.map((post) => (
+                  <tr key={post.id} style={{ borderBottom: '1px solid #eee' }}>
+                    <td style={{ padding: '10px', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {post.message || '(Tiada teks/kapsyen)'}
+                    </td>
+                    <td style={{ padding: '10px' }}>{new Date(post.scheduled_at).toLocaleString()}</td>
+                    <td style={{ padding: '10px' }}>{new Date(post.created_at).toLocaleString()}</td>
+                    <td style={{ padding: '10px' }}>
+                      <span style={{ 
+                        padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold', fontSize: '11px',
+                        backgroundColor: post.status === 'published' ? '#d4edda' : (post.status === 'failed' ? '#f8d7da' : '#fff3cd'),
+                        color: post.status === 'published' ? '#155724' : (post.status === 'failed' ? '#721c24' : '#856404')
+                      }}>
+                        {post.status.toUpperCase()}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </main>
   );
 }
