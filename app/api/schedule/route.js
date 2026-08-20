@@ -9,43 +9,55 @@ export async function POST(request) {
       const pageId = page.page_id;
       const accessToken = page.access_token;
 
-      // 1. Pos Kandungan Utama (Gambar atau Teks)
+      // 1. Pos Kandungan Utama (Guna URLSearchParams untuk keserasian Meta Graph API)
       let postEndpoint = `https://graph.facebook.com/v26.0/${pageId}/feed`;
-      let postPayload = { message: message, access_token: accessToken };
+      const postParams = new URLSearchParams();
+      postParams.append('access_token', accessToken);
 
       if (mediaUrl) {
         postEndpoint = `https://graph.facebook.com/v26.0/${pageId}/photos`;
-        postPayload = { caption: message, url: mediaUrl, access_token: accessToken };
+        if (message) postParams.append('caption', message);
+        postParams.append('url', mediaUrl);
+      } else {
+        if (message) postParams.append('message', message);
       }
 
       const postRes = await fetch(postEndpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(postPayload)
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: postParams.toString()
       });
       const postData = await postRes.json();
 
-      // 2. Pos Auto-First Comment jika ada
-      let commentData = null;
+      if (postData.error) {
+        results.push({ page: page.page_name, success: false, error: postData.error.message });
+        continue;
+      }
+
+      // 2. Pos Auto First Comment jika pos utama berjaya
+      let commentResult = null;
       if (postData.id && (commentText || commentImageUrl)) {
         const commentEndpoint = `https://graph.facebook.com/v26.0/${postData.id}/comments`;
-        const commentPayload = {
-          message: commentText || '',
-          access_token: accessToken
-        };
-        if (commentImageUrl) {
-          commentPayload.attachment_url = commentImageUrl;
-        }
+        const commentParams = new URLSearchParams();
+        commentParams.append('access_token', accessToken);
+        if (commentText) commentParams.append('message', commentText);
+        if (commentImageUrl) commentParams.append('attachment_url', commentImageUrl);
 
         const commentRes = await fetch(commentEndpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(commentPayload)
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: commentParams.toString()
         });
-        commentData = await commentRes.json();
+        const commentData = await commentRes.json();
+        commentResult = commentData;
       }
 
-      results.push({ page: page.page_name, postId: postData.id, commentId: commentData?.id, error: postData.error });
+      results.push({
+        page: page.page_name,
+        success: true,
+        postId: postData.id,
+        comment: commentResult
+      });
     }
 
     return NextResponse.json({ success: true, results });
