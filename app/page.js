@@ -8,6 +8,7 @@ export default function Home() {
   const [pages, setPages] = useState([]);
   const [selectedPages, setSelectedPages] = useState([]);
   const [message, setMessage] = useState('');
+  const [mediaFile, setMediaFile] = useState(null); // Untuk gambar/video pos utama
   const [firstComment, setFirstComment] = useState('');
   const [firstCommentImage, setFirstCommentImage] = useState(null);
   const [postMode, setPostMode] = useState('now'); 
@@ -66,10 +67,12 @@ export default function Home() {
 
     setLoading(true);
     
-    // Jika anda menggunakan FormData untuk menghantar gambar bersama teks:
     const formData = new FormData();
     formData.append('pageIds', JSON.stringify(selectedPages));
     formData.append('message', message);
+    if (mediaFile) {
+      formData.append('mediaFile', mediaFile);
+    }
     formData.append('firstComment', firstComment);
     if (firstCommentImage) {
       formData.append('firstCommentImage', firstCommentImage);
@@ -82,7 +85,7 @@ export default function Home() {
     try {
       const res = await fetch('/api/schedule', {
         method: 'POST',
-        body: formData, // Menggunakan FormData untuk sokongan fail gambar
+        body: formData,
       });
 
       const data = await res.json();
@@ -90,6 +93,7 @@ export default function Home() {
 
       alert(data.message || 'Berjaya!');
       setMessage('');
+      setMediaFile(null);
       setFirstComment('');
       setFirstCommentImage(null);
       setScheduledDateTime('');
@@ -175,6 +179,20 @@ export default function Home() {
               placeholder="Tulis kapsyen anda di sini..." 
               style={{ width: '100%', height: '100px', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} 
             />
+          </div>
+
+          {/* Muat Naik Media (Gambar/Video) untuk Pos Utama */}
+          <div style={{ marginBottom: '15px', background: '#fff', padding: '15px', borderRadius: '8px', border: '1px solid #ddd' }}>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px', fontSize: '14px' }}>Muat Naik Gambar / Video Pos:</label>
+            <input 
+              type="file" 
+              accept="image/*,video/*"
+              onChange={(e) => setMediaFile(e.target.files[0])}
+              style={{ fontSize: '13px' }}
+            />
+            {mediaFile && (
+              <p style={{ fontSize: '12px', color: '#28a745', marginTop: '5px' }}>Fail dipilih: {mediaFile.name}</p>
+            )}
           </div>
 
           {/* Ruangan First Comment & Upload Gambar */}
