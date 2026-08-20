@@ -1,12 +1,22 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+export const dynamic = 'force-dynamic';
 
 export async function POST(request) {
   try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      return NextResponse.json(
+        { error: 'Kunci Supabase Environment Variables belum ditetapkan di Vercel.' },
+        { status: 500 }
+      );
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
     const body = await request.json();
     const { pageIds, message, imageUrl, videoUrl, firstComment } = body;
 
@@ -17,7 +27,7 @@ export async function POST(request) {
       );
     }
 
-    // 1. Ambil access token dari Supabase
+    // 1. Ambil token dari Supabase
     const { data: pages, error: dbError } = await supabase
       .from('pages')
       .select('page_id, page_name, access_token')
@@ -38,7 +48,6 @@ export async function POST(request) {
         let postRes;
 
         if (videoUrl) {
-          // --- PENGENDALIAN VIDEO ---
           postRes = await fetch(
             `https://graph.facebook.com/v26.0/${page.page_id}/videos`,
             {
@@ -52,7 +61,6 @@ export async function POST(request) {
             }
           );
         } else if (imageUrl) {
-          // --- PENGENDALIAN GAMBAR ---
           postRes = await fetch(
             `https://graph.facebook.com/v26.0/${page.page_id}/photos`,
             {
@@ -66,7 +74,6 @@ export async function POST(request) {
             }
           );
         } else {
-          // --- PENGENDALIAN TEKS SAHAJA ---
           postRes = await fetch(
             `https://graph.facebook.com/v26.0/${page.page_id}/feed`,
             {
@@ -96,11 +103,9 @@ export async function POST(request) {
         let commentError = null;
 
         if (firstComment && firstComment.trim() !== '') {
-          // Video memerlukan sedikit masa pemprosesan sebelum bersedia menerima komen
           const delayTime = videoUrl ? 4000 : 2000;
           await new Promise((resolve) => setTimeout(resolve, delayTime));
 
-          // Sasaran ID: Utamakan post_id jika ada (gambar), atau id terus (video / feed)
           const targetCommentId = postData.post_id || postData.id;
 
           const commentRes = await fetch(
