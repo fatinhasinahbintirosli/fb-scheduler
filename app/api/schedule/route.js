@@ -25,6 +25,9 @@ export async function POST(request) {
 
     // A. Simpan ke database jika pos dijadualkan
     if (scheduledAt) {
+      // Pastikan masa dibaca mengikut zon masa Malaysia (UTC+8) dengan menambah '+08:00' jika tiada penanda zon masa
+      const formattedScheduledAt = scheduledAt.endsWith('Z') || scheduledAt.includes('+') ? scheduledAt : `${scheduledAt}:00+08:00`;
+
       const { error: insertError } = await supabase.from('scheduled_posts').insert({
         page_ids: pageIds,
         message: message || '',
@@ -32,7 +35,7 @@ export async function POST(request) {
         video_url: videoUrl || null,
         first_comment: firstComment || null,
         comment_image_url: commentImageUrl || null,
-        scheduled_at: new Date(scheduledAt).toISOString(),
+        scheduled_at: new Date(formattedScheduledAt).toISOString(),
         status: 'pending',
       });
 
