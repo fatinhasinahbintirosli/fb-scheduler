@@ -9,54 +9,76 @@ export async function POST(request) {
       const pageId = page.page_id;
       const accessToken = page.access_token;
 
-      // 1. Pos Kandungan Utama (Guna URLSearchParams untuk keserasian Meta Graph API)
-      let postEndpoint = `https://graph.facebook.com/v26.0/${pageId}/feed`;
-      const postParams = new URLSearchParams();
-      postParams.append('access_token', accessToken);
+      let targetPostId = null;
 
+      // 1. Pos Kandungan Utama
       if (mediaUrl) {
-        postEndpoint = `https://graph.facebook.com/v26.0/${pageId}/photos`;
-        if (message) postParams.append('caption', message);
-        postParams.append('url', mediaUrl);
+        const photoParams = new URLSearchParams();
+        photoParams.append('access_token', accessToken);
+        photoParams.append('url', mediaUrl);
+        if (message) photoParams.append('caption', message);
+
+        const photoRes = await fetch(`https://graph.facebook.com/v26.0/${pageId}/photos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: photoParams.toString()
+        });
+        const photoData = await photoRes.json();
+
+        if (photoData.error) {
+          results.push({ page: page.page_name, success: false, error: photoData.error.message });
+          continue;
+        }
+
+        targetPostId = photoData.post_id || photoData.id;
       } else {
-        if (message) postParams.append('message', message);
+        const feedParams = new URLSearchParams();
+        feedParams.append('access_token', accessToken);
+        if (message) feedParams.append('message', message);
+
+        const feedRes = await fetch(`https://graph.facebook.com/v26.0/${pageId}/feed`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: feedParams.toString()
+        });
+        const feedData = await feedRes.json();
+
+        if (feedData.error) {
+          results.push({ page: page.page_name, success: false, error: feedData.error.message });
+          continue;
+        }
+
+        targetPostId = feedData.id;
       }
 
-      const postRes = await fetch(postEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: postParams.toString()
-      });
-      const postData = await postRes.json();
+      // 2. Pos Auto First Comment
+      let commentError = null;
+      if (targetPostId && (commentText || commentImageUrl)) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
 
-      if (postData.error) {
-        results.push({ page: page.page_name, success: false, error: postData.error.message });
-        continue;
-      }
-
-      // 2. Pos Auto First Comment jika pos utama berjaya
-      let commentResult = null;
-      if (postData.id && (commentText || commentImageUrl)) {
-        const commentEndpoint = `https://graph.facebook.com/v26.0/${postData.id}/comments`;
         const commentParams = new URLSearchParams();
         commentParams.append('access_token', accessToken);
         if (commentText) commentParams.append('message', commentText);
         if (commentImageUrl) commentParams.append('attachment_url', commentImageUrl);
 
-        const commentRes = await fetch(commentEndpoint, {
+        const commentRes = await fetch(`https://graph.facebook.com/v26.0/${targetPostId}/comments`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: commentParams.toString()
         });
         const commentData = await commentRes.json();
-        commentResult = commentData;
+
+        if (commentData.error) {
+          commentError = commentData.error.message;
+        }
       }
 
       results.push({
         page: page.page_name,
         success: true,
-        postId: postData.id,
-        comment: commentResult
+        postId: targetPostId,
+        commentSuccess: !commentError,
+        commentError: commentError
       });
     }
 
