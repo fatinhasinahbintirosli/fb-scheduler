@@ -34,15 +34,19 @@ export default function Dashboard() {
 
   const handleUpload = async (file) => {
     if (!file) return null;
-    const fileName = `${Date.now()}-${file.name}`;
-    const { data, error } = await supabase.storage.from('post-media').upload(fileName, file);
-    if (error) return null;
+    const cleanName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
+    const fileName = `${Date.now()}-${cleanName}`;
+    const { error } = await supabase.storage.from('post-media').upload(fileName, file);
+    if (error) {
+      console.error('Storage Upload Error:', error);
+      return null;
+    }
     const { data: publicData } = supabase.storage.from('post-media').getPublicUrl(fileName);
     return publicData.publicUrl;
   };
 
   const handlePublish = async () => {
-    if (selectedPages.length === 0) return alert('Pilih sekurang-kurangnya 1 Page!');
+    if (selectedPages.length === 0) return alert('Sila pilih sekurang-kurangnya 1 Page!');
     setLoading(true);
 
     const mediaUrl = await handleUpload(mediaFile);
@@ -64,24 +68,28 @@ export default function Dashboard() {
     const result = await res.json();
     setLoading(false);
 
-    // Semak jika ada error dari Facebook
-    const errors = result.results?.filter((r) => !r.success);
-    if (errors && errors.length > 0) {
-      alert(`Ralat Facebook:\n` + errors.map((e) => `${e.page}: ${e.error}`).join('\n'));
-    } else if (result.success) {
-      alert('Pos & Komen berjaya diterbitkan!');
+    if (!result.success) {
+      return alert('Ralat Sistem: ' + result.error);
+    }
+
+    const failedPosts = result.results.filter((r) => !r.success);
+    const failedComments = result.results.filter((r) => r.success && !r.commentSuccess);
+
+    if (failedPosts.length > 0) {
+      alert('Ralat Pos Facebook:\n' + failedPosts.map((e) => `${e.page}: ${e.error}`).join('\n'));
+    } else if (failedComments.length > 0) {
+      alert('Pos Berjaya, tetapi Ralat pada Komen:\n' + failedComments.map((e) => `${e.page}: ${e.commentError}`).join('\n'));
     } else {
-      alert('Ralat Sistem: ' + result.error);
+      alert('Semua Pos & Komen Pertama berjaya diterbitkan!');
     }
   };
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'sans-serif', background: '#f0f2f5' }}>
-      {/* Panel Kiri: Form Input */}
+      {/* Panel Kiri */}
       <div style={{ flex: 1, padding: '24px', borderRight: '1px solid #ddd', overflowY: 'auto' }}>
         <h2>Facebook Multi-Page Scheduler</h2>
 
-        {/* Pemilihan Pages */}
         <div style={{ background: '#fff', padding: '16px', borderRadius: '8px', marginBottom: '16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
             <strong>Pilih Pages ({selectedPages.length}/{pages.length})</strong>
@@ -101,7 +109,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Input Pos Utama */}
         <div style={{ background: '#fff', padding: '16px', borderRadius: '8px', marginBottom: '16px' }}>
           <label><strong>Kandungan Pos Utama:</strong></label>
           <textarea
@@ -124,13 +131,12 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* Input Auto First Comment */}
         <div style={{ background: '#fff', padding: '16px', borderRadius: '8px', marginBottom: '16px' }}>
           <label><strong>Auto First Comment:</strong></label>
           <textarea
             rows="3"
             style={{ width: '100%', marginTop: '6px' }}
-            placeholder="Tulis komen pertama (link affiliate/Shopee dsb)..."
+            placeholder="Tulis komen pertama (link affiliate, Shopee, dsb)..."
             value={commentText}
             onChange={(e) => setCommentText(e.target.value)}
           />
@@ -156,7 +162,7 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* Panel Kanan: Live Preview Facebook */}
+      {/* Panel Kanan */}
       <div style={{ flex: 1, padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <h3 style={{ alignSelf: 'flex-start' }}>Pratonton (Live Preview)</h3>
         <div style={{ width: '450px', background: '#fff', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
@@ -170,7 +176,6 @@ export default function Dashboard() {
           <div style={{ padding: '0 12px 12px 12px', whiteSpace: 'pre-wrap' }}>{postText || 'Kandungan teks pos akan dipaparkan di sini...'}</div>
           {mediaPreview && <img src={mediaPreview} alt="Preview" style={{ width: '100%', maxHeight: '300px', objectFit: 'cover' }} />}
 
-          {/* Comment Preview */}
           {(commentText || commentPreview) && (
             <div style={{ background: '#f0f2f5', padding: '12px', borderTop: '1px solid #e4e6eb' }}>
               <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#65676b', marginBottom: '6px' }}>Komen Pertama (Auto-Comment):</div>
