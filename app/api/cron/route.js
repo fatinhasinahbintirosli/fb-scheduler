@@ -11,7 +11,7 @@ export async function GET(request) {
 
     const now = new Date().toISOString();
 
-    // 1. Dapatkan pos pending yang masa <= waktu sekarang
+    // 1. Ambil pos pending yang masa <= waktu sekarang
     const { data: postsToPublish, error: fetchError } = await supabase
       .from('scheduled_posts')
       .select('*')
@@ -75,7 +75,7 @@ export async function GET(request) {
             continue;
           }
 
-          // Hantar First Comment jika ada
+          // First Comment jika ada
           if (item.first_comment || item.comment_image_url) {
             await new Promise((resolve) => setTimeout(resolve, item.video_url ? 4000 : 2000));
             const targetCommentId = postData.post_id || postData.id;
