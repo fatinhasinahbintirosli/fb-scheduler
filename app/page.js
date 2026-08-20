@@ -26,7 +26,7 @@ export default function Home() {
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  // Ambil senarai Page
+  // Ambil senarai Facebook Pages dari Supabase
   useEffect(() => {
     async function fetchPages() {
       try {
@@ -46,21 +46,21 @@ export default function Home() {
     fetchPages();
   }, []);
 
-  // Fungsi muat naik fail terus ke Supabase Storage
+  // Fungsi muat naik fail ke bucket 'post-media'
   const uploadToStorage = async (file) => {
     const fileExt = file.name.split('.').pop();
     const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
     const filePath = `uploads/${fileName}`;
 
     const { error: uploadError } = await supabase.storage
-      .from('media')
+      .from('post-media')
       .upload(filePath, file);
 
     if (uploadError) {
       throw new Error(`Gagal muat naik fail: ${uploadError.message}`);
     }
 
-    const { data } = supabase.storage.from('media').getPublicUrl(filePath);
+    const { data } = supabase.storage.from('post-media').getPublicUrl(filePath);
     return data.publicUrl;
   };
 
@@ -89,22 +89,22 @@ export default function Home() {
     }
 
     if (!message && mediaType === 'none' && !mediaFile && !mediaUrlInput) {
-      alert('Sila masukkan teks kapsyen atau pilih media.');
+      alert('Sila masukkan teks kapsyen atau pilih fail media.');
       return;
     }
 
     setLoading(true);
-    setUploadStatus('Memproses hantaran...');
+    setUploadStatus('Memproses fail...');
 
     try {
       let finalImageUrl = null;
       let finalVideoUrl = null;
       let finalCommentImageUrl = null;
 
-      // 1. Proses Muat Naik Media Utama (Gambar / Video)
+      // 1. Muat naik Media Utama
       if (mediaType !== 'none') {
         if (uploadMethod === 'direct' && mediaFile) {
-          setUploadStatus(`Sedang memuat naik fail ${mediaType}...`);
+          setUploadStatus(`Sedang memuat naik ${mediaType} ke Supabase...`);
           const uploadedUrl = await uploadToStorage(mediaFile);
           if (mediaType === 'image') finalImageUrl = uploadedUrl;
           if (mediaType === 'video') finalVideoUrl = uploadedUrl;
@@ -114,13 +114,13 @@ export default function Home() {
         }
       }
 
-      // 2. Proses Muat Naik Gambar First Comment (jika ada)
+      // 2. Muat naik Gambar First Comment
       if (commentImageFile) {
         setUploadStatus('Sedang memuat naik gambar First Comment...');
         finalCommentImageUrl = await uploadToStorage(commentImageFile);
       }
 
-      setUploadStatus('Menerbitkan pos ke Facebook Pages...');
+      setUploadStatus('Menerbitkan pos ke Facebook...');
 
       const payload = {
         pageIds: selectedPages,
@@ -150,7 +150,7 @@ export default function Home() {
         if (item.success) {
           successCount++;
           if (item.commentError) {
-            errorMessages.push(`${item.page}: Pos berjaya, tapi ralat komen (${item.commentError})`);
+            errorMessages.push(`${item.page}: Pos berjaya, ralat komen (${item.commentError})`);
           }
         } else {
           errorMessages.push(`${item.page}: Gagal (${item.error})`);
@@ -166,7 +166,7 @@ export default function Home() {
         setCommentImageFile(null);
       } else {
         alert(
-          `Selesai dengan beberapa makluman:\n\n` +
+          `Selesai dengan makluman:\n\n` +
           `Berjaya: ${successCount}/${pages.length}\n` +
           errorMessages.join('\n')
         );
@@ -185,7 +185,7 @@ export default function Home() {
       <p style={{ color: '#65676b', marginBottom: '24px', fontSize: '14px' }}>Hantar pos teks, gambar, video serta komen pertama serentak ke semua Facebook Page.</p>
 
       <form onSubmit={handleSubmit}>
-        {/* Pemilihan Page */}
+        {/* Bahagian Pemilihan Page */}
         <div style={{ marginBottom: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <label style={{ fontWeight: 'bold', fontSize: '15px' }}>Pilih Facebook Pages ({selectedPages.length}/{pages.length}):</label>
@@ -216,7 +216,7 @@ export default function Home() {
           )}
         </div>
 
-        {/* Kapsyen Pos */}
+        {/* Bahagian Kapsyen Pos */}
         <div style={{ marginBottom: '16px' }}>
           <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px', fontSize: '14px' }}>Mesej / Kapsyen Pos:</label>
           <textarea
@@ -228,7 +228,7 @@ export default function Home() {
           />
         </div>
 
-        {/* Jenis Media Utama */}
+        {/* Bahagian Media Utama */}
         <div style={{ marginBottom: '16px', padding: '14px', backgroundColor: '#f7f8fa', borderRadius: '8px' }}>
           <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px', fontSize: '14px' }}>Media Utama Pos:</label>
           <div style={{ display: 'flex', gap: '16px', marginBottom: '12px' }}>
@@ -279,7 +279,7 @@ export default function Home() {
           )}
         </div>
 
-        {/* First Comment & Gambar Komen */}
+        {/* Bahagian First Comment */}
         <div style={{ marginBottom: '24px', padding: '14px', backgroundColor: '#f0f7ff', borderRadius: '8px', border: '1px solid #cce3ff' }}>
           <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px', fontSize: '14px', color: '#0056b3' }}>Auto First Comment (Pilihan):</label>
           <textarea
@@ -299,7 +299,7 @@ export default function Home() {
           />
         </div>
 
-        {/* Butang Hantar */}
+        {/* Butang Submit */}
         <button
           type="submit"
           disabled={loading}
