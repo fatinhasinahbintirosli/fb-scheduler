@@ -9,9 +9,9 @@ export async function POST(request) {
       const pageId = page.page_id;
       const accessToken = page.access_token;
 
-      let targetPostId = null;
+      let targetCommentId = null;
 
-      // 1. Pos Kandungan Utama
+      // 1. Pos Utama (Gambar atau Teks)
       if (mediaUrl) {
         const photoParams = new URLSearchParams();
         photoParams.append('access_token', accessToken);
@@ -30,7 +30,8 @@ export async function POST(request) {
           continue;
         }
 
-        targetPostId = photoData.post_id || photoData.id;
+        // Untuk gambar, komen dihantar terus ke ID foto
+        targetCommentId = photoData.id;
       } else {
         const feedParams = new URLSearchParams();
         feedParams.append('access_token', accessToken);
@@ -48,12 +49,14 @@ export async function POST(request) {
           continue;
         }
 
-        targetPostId = feedData.id;
+        targetCommentId = feedData.id;
       }
 
       // 2. Pos Auto First Comment
-      let commentError = null;
-      if (targetPostId && (commentText || commentImageUrl)) {
+      let commentSuccess = true;
+      let commentErrorMsg = null;
+
+      if (targetCommentId && (commentText || commentImageUrl)) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
 
         const commentParams = new URLSearchParams();
@@ -61,7 +64,7 @@ export async function POST(request) {
         if (commentText) commentParams.append('message', commentText);
         if (commentImageUrl) commentParams.append('attachment_url', commentImageUrl);
 
-        const commentRes = await fetch(`https://graph.facebook.com/v26.0/${targetPostId}/comments`, {
+        const commentRes = await fetch(`https://graph.facebook.com/v26.0/${targetCommentId}/comments`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: commentParams.toString()
@@ -69,16 +72,16 @@ export async function POST(request) {
         const commentData = await commentRes.json();
 
         if (commentData.error) {
-          commentError = commentData.error.message;
+          commentSuccess = false;
+          commentErrorMsg = commentData.error.message;
         }
       }
 
       results.push({
         page: page.page_name,
         success: true,
-        postId: targetPostId,
-        commentSuccess: !commentError,
-        commentError: commentError
+        commentSuccess: commentSuccess,
+        commentError: commentErrorMsg
       });
     }
 
