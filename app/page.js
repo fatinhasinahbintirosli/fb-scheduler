@@ -9,6 +9,7 @@ export default function Home() {
   const [selectedPages, setSelectedPages] = useState([]);
   const [message, setMessage] = useState('');
   const [firstComment, setFirstComment] = useState('');
+  const [firstCommentImage, setFirstCommentImage] = useState(null);
   const [postMode, setPostMode] = useState('now'); 
   const [scheduledDateTime, setScheduledDateTime] = useState('');
   const [scheduledPosts, setScheduledPosts] = useState([]);
@@ -65,19 +66,23 @@ export default function Home() {
 
     setLoading(true);
     
-    const payload = {
-      pageIds: selectedPages,
-      message,
-      firstComment,
-      postMode,
-      scheduledAt: postMode === 'schedule' ? scheduledDateTime : null
-    };
+    // Jika anda menggunakan FormData untuk menghantar gambar bersama teks:
+    const formData = new FormData();
+    formData.append('pageIds', JSON.stringify(selectedPages));
+    formData.append('message', message);
+    formData.append('firstComment', firstComment);
+    if (firstCommentImage) {
+      formData.append('firstCommentImage', firstCommentImage);
+    }
+    formData.append('postMode', postMode);
+    if (postMode === 'schedule') {
+      formData.append('scheduledAt', scheduledDateTime);
+    }
 
     try {
       const res = await fetch('/api/schedule', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: formData, // Menggunakan FormData untuk sokongan fail gambar
       });
 
       const data = await res.json();
@@ -86,6 +91,7 @@ export default function Home() {
       alert(data.message || 'Berjaya!');
       setMessage('');
       setFirstComment('');
+      setFirstCommentImage(null);
       setScheduledDateTime('');
 
       const { data: sData } = await supabase.from('scheduled_posts').select('*').order('created_at', { ascending: false });
@@ -171,16 +177,27 @@ export default function Home() {
             />
           </div>
 
-          {/* Ruangan First Comment */}
-          <div style={{ marginBottom: '15px' }}>
+          {/* Ruangan First Comment & Upload Gambar */}
+          <div style={{ marginBottom: '15px', background: '#fff', padding: '15px', borderRadius: '8px', border: '1px solid #ddd' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>First Comment (Pilihan):</label>
             <input 
               type="text" 
               value={firstComment} 
               onChange={(e) => setFirstComment(e.target.value)} 
               placeholder="Tulis komen pertama (cth: link produk di ruangan komen)..." 
-              style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} 
+              style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box', marginBottom: '10px' }} 
             />
+            
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '5px', color: '#555' }}>Muat Naik Gambar untuk First Comment:</label>
+            <input 
+              type="file" 
+              accept="image/*"
+              onChange={(e) => setFirstCommentImage(e.target.files[0])}
+              style={{ fontSize: '13px' }}
+            />
+            {firstCommentImage && (
+              <p style={{ fontSize: '12px', color: '#28a745', marginTop: '5px' }}>Fail dipilih: {firstCommentImage.name}</p>
+            )}
           </div>
           
           <div style={{ margin: '15px 0', display: 'flex', gap: '15px', alignItems: 'center' }}>
