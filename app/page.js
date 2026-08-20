@@ -63,8 +63,16 @@ export default function Dashboard() {
 
     const result = await res.json();
     setLoading(false);
-    if (result.success) alert('Pos & Komen berjaya diterbitkan!');
-    else alert('Ralat: ' + JSON.stringify(result.error));
+
+    // Semak jika ada error dari Facebook
+    const errors = result.results?.filter((r) => !r.success);
+    if (errors && errors.length > 0) {
+      alert(`Ralat Facebook:\n` + errors.map((e) => `${e.page}: ${e.error}`).join('\n'));
+    } else if (result.success) {
+      alert('Pos & Komen berjaya diterbitkan!');
+    } else {
+      alert('Ralat Sistem: ' + result.error);
+    }
   };
 
   return (
@@ -108,8 +116,10 @@ export default function Dashboard() {
             accept="image/*"
             style={{ marginTop: '8px' }}
             onChange={(e) => {
-              setMediaFile(e.target.files[0]);
-              setMediaPreview(URL.createObjectURL(e.target.files[0]));
+              if (e.target.files[0]) {
+                setMediaFile(e.target.files[0]);
+                setMediaPreview(URL.createObjectURL(e.target.files[0]));
+              }
             }}
           />
         </div>
@@ -129,8 +139,10 @@ export default function Dashboard() {
             accept="image/*"
             style={{ marginTop: '8px' }}
             onChange={(e) => {
-              setCommentFile(e.target.files[0]);
-              setCommentPreview(URL.createObjectURL(e.target.files[0]));
+              if (e.target.files[0]) {
+                setCommentFile(e.target.files[0]);
+                setCommentPreview(URL.createObjectURL(e.target.files[0]));
+              }
             }}
           />
         </div>
