@@ -10,7 +10,7 @@ export async function POST(request) {
 
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json(
-        { error: 'Kunci Supabase Environment Variables belum ditetapkan di Vercel.' },
+        { error: 'Kunci Supabase Environment Variables belum ditetapkan.' },
         { status: 500 }
       );
     }
@@ -18,7 +18,7 @@ export async function POST(request) {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const body = await request.json();
-    const { pageIds, message, imageUrl, videoUrl, firstComment } = body;
+    const { pageIds, message, imageUrl, videoUrl, firstComment, commentImageUrl } = body;
 
     if (!pageIds || !Array.isArray(pageIds) || pageIds.length === 0) {
       return NextResponse.json(
@@ -42,7 +42,7 @@ export async function POST(request) {
 
     const results = [];
 
-    // 2. Loop setiap page untuk hantar pos mengikut jenis media
+    // 2. Loop setiap page untuk pos
     for (const page of pages) {
       try {
         let postRes;
@@ -98,25 +98,29 @@ export async function POST(request) {
           continue;
         }
 
-        // 3. Hantar First Comment
+        // 3. Hantar First Comment (Teks / Gambar)
         let commentSuccess = false;
         let commentError = null;
 
-        if (firstComment && firstComment.trim() !== '') {
+        if ((firstComment && firstComment.trim() !== '') || commentImageUrl) {
           const delayTime = videoUrl ? 4000 : 2000;
           await new Promise((resolve) => setTimeout(resolve, delayTime));
 
           const targetCommentId = postData.post_id || postData.id;
+
+          const commentPayload = {
+            access_token: page.access_token,
+          };
+
+          if (firstComment) commentPayload.message = firstComment;
+          if (commentImageUrl) commentPayload.attachment_url = commentImageUrl;
 
           const commentRes = await fetch(
             `https://graph.facebook.com/v26.0/${targetCommentId}/comments`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                message: firstComment,
-                access_token: page.access_token,
-              }),
+              body: JSON.stringify(commentPayload),
             }
           );
 
@@ -133,7 +137,7 @@ export async function POST(request) {
           page: page.page_name,
           success: true,
           postId: postData.post_id || postData.id,
-          commentSuccess: firstComment ? commentSuccess : null,
+          commentSuccess: (firstComment || commentImageUrl) ? commentSuccess : null,
           commentError: commentError,
         });
 
