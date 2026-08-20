@@ -16,7 +16,7 @@ export default function Home() {
   const [firstComment, setFirstComment] = useState('');
   const [commentImageFile, setCommentImageFile] = useState(null);
 
-  // State Jadual
+  // State Jadual Pos
   const [postMode, setPostMode] = useState('now'); // 'now' atau 'schedule'
   const [scheduledDateTime, setScheduledDateTime] = useState('');
 
