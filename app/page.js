@@ -7,26 +7,29 @@ export default function Home() {
   const [pages, setPages] = useState([]);
   const [selectedPages, setSelectedPages] = useState([]);
   const [message, setMessage] = useState('');
-  const [mediaType, setMediaType] = useState('image');
-  const [mediaUrl, setMediaUrl] = useState('');
+  const [mediaType, setMediaType] = useState('none'); // 'none', 'image', 'video'
+  
+  // State Fail & URL Media Utama
+  const [mediaFile, setMediaFile] = useState(null);
+  const [mediaUrlInput, setMediaUrlInput] = useState('');
+  const [uploadMethod, setUploadMethod] = useState('direct'); // 'direct' atau 'url'
+
+  // State First Comment
   const [firstComment, setFirstComment] = useState('');
+  const [commentImageFile, setCommentImageFile] = useState(null);
+
   const [loading, setLoading] = useState(false);
   const [fetchingPages, setFetchingPages] = useState(true);
+  const [uploadStatus, setUploadStatus] = useState('');
 
-  // Ambil senarai Facebook Pages dari Supabase
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const supabase = createClient(supabaseUrl, supabaseKey);
+
+  // Ambil senarai Page
   useEffect(() => {
     async function fetchPages() {
       try {
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-        if (!supabaseUrl || !supabaseKey) {
-          console.warn('Supabase URL atau Key belum ditetapkan.');
-          setFetchingPages(false);
-          return;
-        }
-
-        const supabase = createClient(supabaseUrl, supabaseKey);
         const { data, error } = await supabase
           .from('pages')
           .select('page_id, page_name')
@@ -42,6 +45,24 @@ export default function Home() {
     }
     fetchPages();
   }, []);
+
+  // Fungsi muat naik fail terus ke Supabase Storage
+  const uploadToStorage = async (file) => {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+    const filePath = `uploads/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('media')
+      .upload(filePath, file);
+
+    if (uploadError) {
+      throw new Error(`Gagal muat naik fail: ${uploadError.message}`);
+    }
+
+    const { data } = supabase.storage.from('media').getPublicUrl(filePath);
+    return data.publicUrl;
+  };
 
   const handleSelectAll = () => {
     if (selectedPages.length === pages.length) {
@@ -67,20 +88,47 @@ export default function Home() {
       return;
     }
 
-    if (!message && !mediaUrl) {
-      alert('Sila masukkan teks kapsyen atau pautan media.');
+    if (!message && mediaType === 'none' && !mediaFile && !mediaUrlInput) {
+      alert('Sila masukkan teks kapsyen atau pilih media.');
       return;
     }
 
     setLoading(true);
+    setUploadStatus('Memproses hantaran...');
 
     try {
+      let finalImageUrl = null;
+      let finalVideoUrl = null;
+      let finalCommentImageUrl = null;
+
+      // 1. Proses Muat Naik Media Utama (Gambar / Video)
+      if (mediaType !== 'none') {
+        if (uploadMethod === 'direct' && mediaFile) {
+          setUploadStatus(`Sedang memuat naik fail ${mediaType}...`);
+          const uploadedUrl = await uploadToStorage(mediaFile);
+          if (mediaType === 'image') finalImageUrl = uploadedUrl;
+          if (mediaType === 'video') finalVideoUrl = uploadedUrl;
+        } else if (uploadMethod === 'url' && mediaUrlInput) {
+          if (mediaType === 'image') finalImageUrl = mediaUrlInput.trim();
+          if (mediaType === 'video') finalVideoUrl = mediaUrlInput.trim();
+        }
+      }
+
+      // 2. Proses Muat Naik Gambar First Comment (jika ada)
+      if (commentImageFile) {
+        setUploadStatus('Sedang memuat naik gambar First Comment...');
+        finalCommentImageUrl = await uploadToStorage(commentImageFile);
+      }
+
+      setUploadStatus('Menerbitkan pos ke Facebook Pages...');
+
       const payload = {
         pageIds: selectedPages,
         message: message,
-        imageUrl: mediaType === 'image' ? mediaUrl.trim() : null,
-        videoUrl: mediaType === 'video' ? mediaUrl.trim() : null,
+        imageUrl: finalImageUrl,
+        videoUrl: finalVideoUrl,
         firstComment: firstComment.trim() || null,
+        commentImageUrl: finalCommentImageUrl,
       };
 
       const res = await fetch('/api/schedule', {
@@ -110,10 +158,12 @@ export default function Home() {
       });
 
       if (errorMessages.length === 0) {
-        alert(`Berjaya! Pos dan komen diterbitkan ke ${successCount} Page.`);
+        alert(`Berjaya! Pos dan First Comment diterbitkan ke ${successCount} Page.`);
         setMessage('');
-        setMediaUrl('');
+        setMediaFile(null);
+        setMediaUrlInput('');
         setFirstComment('');
+        setCommentImageFile(null);
       } else {
         alert(
           `Selesai dengan beberapa makluman:\n\n` +
@@ -125,15 +175,17 @@ export default function Home() {
       alert(`Ralat: ${err.message}`);
     } finally {
       setLoading(false);
+      setUploadStatus('');
     }
   };
 
   return (
     <main style={{ maxWidth: '750px', margin: '40px auto', padding: '24px', fontFamily: 'system-ui, sans-serif', backgroundColor: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
       <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px', color: '#1877f2' }}>Facebook Post & Video Scheduler</h1>
-      <p style={{ color: '#65676b', marginBottom: '24px', fontSize: '14px' }}>Hantar pos gambar, video berserta auto first comment serentak ke semua Facebook Page.</p>
+      <p style={{ color: '#65676b', marginBottom: '24px', fontSize: '14px' }}>Hantar pos teks, gambar, video serta komen pertama serentak ke semua Facebook Page.</p>
 
       <form onSubmit={handleSubmit}>
+        {/* Pemilihan Page */}
         <div style={{ marginBottom: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <label style={{ fontWeight: 'bold', fontSize: '15px' }}>Pilih Facebook Pages ({selectedPages.length}/{pages.length}):</label>
@@ -164,6 +216,7 @@ export default function Home() {
           )}
         </div>
 
+        {/* Kapsyen Pos */}
         <div style={{ marginBottom: '16px' }}>
           <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px', fontSize: '14px' }}>Mesej / Kapsyen Pos:</label>
           <textarea
@@ -175,66 +228,78 @@ export default function Home() {
           />
         </div>
 
-        <div style={{ marginBottom: '16px' }}>
-          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px', fontSize: '14px' }}>Jenis Media:</label>
-          <div style={{ display: 'flex', gap: '20px', marginBottom: '8px' }}>
+        {/* Jenis Media Utama */}
+        <div style={{ marginBottom: '16px', padding: '14px', backgroundColor: '#f7f8fa', borderRadius: '8px' }}>
+          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px', fontSize: '14px' }}>Media Utama Pos:</label>
+          <div style={{ display: 'flex', gap: '16px', marginBottom: '12px' }}>
             <label style={{ cursor: 'pointer', fontSize: '14px' }}>
-              <input
-                type="radio"
-                name="mediaType"
-                value="image"
-                checked={mediaType === 'image'}
-                onChange={() => setMediaType('image')}
-                style={{ marginRight: '6px' }}
-              />
-              Gambar (Image URL)
+              <input type="radio" name="mediaType" value="none" checked={mediaType === 'none'} onChange={() => setMediaType('none')} style={{ marginRight: '6px' }} />
+              Teks Sahaja
             </label>
             <label style={{ cursor: 'pointer', fontSize: '14px' }}>
-              <input
-                type="radio"
-                name="mediaType"
-                value="video"
-                checked={mediaType === 'video'}
-                onChange={() => setMediaType('video')}
-                style={{ marginRight: '6px' }}
-              />
-              Video (.mp4 / direct URL)
+              <input type="radio" name="mediaType" value="image" checked={mediaType === 'image'} onChange={() => setMediaType('image')} style={{ marginRight: '6px' }} />
+              Gambar
             </label>
             <label style={{ cursor: 'pointer', fontSize: '14px' }}>
-              <input
-                type="radio"
-                name="mediaType"
-                value="none"
-                checked={mediaType === 'none'}
-                onChange={() => setMediaType('none')}
-                style={{ marginRight: '6px' }}
-              />
-              Tiada Media (Teks Sahaja)
+              <input type="radio" name="mediaType" value="video" checked={mediaType === 'video'} onChange={() => setMediaType('video')} style={{ marginRight: '6px' }} />
+              Video
             </label>
           </div>
 
           {mediaType !== 'none' && (
-            <input
-              type="url"
-              value={mediaUrl}
-              onChange={(e) => setMediaUrl(e.target.value)}
-              placeholder={mediaType === 'image' ? "https://example.com/gambar.jpg" : "https://example.com/video.mp4"}
-              style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ccc', boxSizing: 'border-box', fontSize: '14px' }}
-            />
+            <div>
+              <div style={{ display: 'flex', gap: '14px', marginBottom: '8px', fontSize: '13px' }}>
+                <label style={{ cursor: 'pointer' }}>
+                  <input type="radio" name="uploadMethod" value="direct" checked={uploadMethod === 'direct'} onChange={() => setUploadMethod('direct')} style={{ marginRight: '4px' }} />
+                  Direct Upload Fail (PC / Phone)
+                </label>
+                <label style={{ cursor: 'pointer' }}>
+                  <input type="radio" name="uploadMethod" value="url" checked={uploadMethod === 'url'} onChange={() => setUploadMethod('url')} style={{ marginRight: '4px' }} />
+                  Guna URL
+                </label>
+              </div>
+
+              {uploadMethod === 'direct' ? (
+                <input
+                  type="file"
+                  accept={mediaType === 'image' ? 'image/*' : 'video/mp4,video/quicktime'}
+                  onChange={(e) => setMediaFile(e.target.files[0])}
+                  style={{ width: '100%', padding: '8px', fontSize: '14px' }}
+                />
+              ) : (
+                <input
+                  type="url"
+                  value={mediaUrlInput}
+                  onChange={(e) => setMediaUrlInput(e.target.value)}
+                  placeholder={mediaType === 'image' ? 'https://example.com/gambar.jpg' : 'https://example.com/video.mp4'}
+                  style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box', fontSize: '14px' }}
+                />
+              )}
+            </div>
           )}
         </div>
 
-        <div style={{ marginBottom: '24px' }}>
-          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px', fontSize: '14px' }}>First Comment (Pilihan):</label>
+        {/* First Comment & Gambar Komen */}
+        <div style={{ marginBottom: '24px', padding: '14px', backgroundColor: '#f0f7ff', borderRadius: '8px', border: '1px solid #cce3ff' }}>
+          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px', fontSize: '14px', color: '#0056b3' }}>Auto First Comment (Pilihan):</label>
           <textarea
             rows="3"
             value={firstComment}
             onChange={(e) => setFirstComment(e.target.value)}
-            placeholder="Komen pertama yang akan dipos automatik..."
-            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ccc', boxSizing: 'border-box', fontSize: '14px' }}
+            placeholder="Tulis komen pertama automatik..."
+            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #b8daff', boxSizing: 'border-box', fontSize: '14px', marginBottom: '10px' }}
+          />
+
+          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', fontSize: '13px', color: '#0056b3' }}>Lampirkan Gambar pada Komen (Pilihan):</label>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => setCommentImageFile(e.target.files[0])}
+            style={{ width: '100%', fontSize: '13px' }}
           />
         </div>
 
+        {/* Butang Hantar */}
         <button
           type="submit"
           disabled={loading}
@@ -250,7 +315,7 @@ export default function Home() {
             cursor: loading ? 'not-allowed' : 'pointer',
           }}
         >
-          {loading ? 'Sedang Memproses Pos...' : 'Hantar Pos Sekarang'}
+          {loading ? (uploadStatus || 'Sedang Memproses...') : 'Hantar Pos Sekarang'}
         </button>
       </form>
     </main>
