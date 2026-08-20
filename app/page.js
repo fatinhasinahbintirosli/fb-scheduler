@@ -2,23 +2,17 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-
-const DAYS = ['Ahad', 'Isnin', 'Selasa', 'Rabu', 'Khamis', 'Jumaat', 'Sabtu'];
+import Link from 'next/link';
 
 export default function Home() {
-  // State Utama
   const [pages, setPages] = useState([]);
   const [selectedPages, setSelectedPages] = useState([]);
   const [message, setMessage] = useState('');
-  const [mediaType, setMediaType] = useState('none');
   const [postMode, setPostMode] = useState('now'); 
   const [scheduledDateTime, setScheduledDateTime] = useState('');
   const [scheduledPosts, setScheduledPosts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fetchingPages, setFetchingPages] = useState(true);
-
-  // State Queue
-  const [queueSlots, setQueueSlots] = useState([]);
 
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
@@ -27,11 +21,9 @@ export default function Home() {
       try {
         const { data: pData } = await supabase.from('pages').select('page_id, page_name').order('page_name', { ascending: true });
         const { data: sData } = await supabase.from('scheduled_posts').select('*').order('created_at', { ascending: false });
-        const { data: qData } = await supabase.from('queue_settings').select('*');
         
         setPages(pData || []);
         setScheduledPosts(sData || []);
-        setQueueSlots(qData || []);
       } catch (err) {
         console.error('Ralat memuatkan data:', err);
       } finally {
@@ -57,20 +49,6 @@ export default function Home() {
     }
   };
 
-  // --- Fungsi Queue ---
-  const addSlot = () => setQueueSlots([...queueSlots, { day_of_week: 0, time_slot: '09:00:00' }]);
-  const updateSlot = (index, field, value) => {
-    const newSlots = [...queueSlots];
-    newSlots[index][field] = field === 'day_of_week' ? parseInt(value) : (value.length === 5 ? value + ':00' : value);
-    setQueueSlots(newSlots);
-  };
-  const saveQueueSettings = async () => {
-    await supabase.from('queue_settings').delete().neq('id', 0);
-    await supabase.from('queue_settings').insert(queueSlots);
-    alert('Jadual Queue disimpan!');
-  };
-
-  // --- Fungsi Hantar ---
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -107,7 +85,6 @@ export default function Home() {
       setMessage('');
       setScheduledDateTime('');
 
-      // Refresh senarai pos berjadual
       const { data: sData } = await supabase.from('scheduled_posts').select('*').order('created_at', { ascending: false });
       setScheduledPosts(sData || []);
     } catch (err) {
@@ -119,13 +96,38 @@ export default function Home() {
 
   return (
     <main style={{ maxWidth: '900px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
-      <h1 style={{ color: '#1877f2' }}>Facebook Scheduler</h1>
+      
+      {/* Header & Link ke Tetapan Timeslot di Sebelah Kiri */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '25px' }}>
+        <div>
+          <h1 style={{ color: '#1877f2', margin: '0 0 8px 0' }}>Facebook Scheduler</h1>
+          <p style={{ color: '#65676b', fontSize: '14px', margin: 0 }}>Hantar atau uruskan jadual pos anda dengan mudah.</p>
+        </div>
+        <div>
+          <Link 
+            href="/queue-settings" 
+            style={{ 
+              display: 'inline-block', 
+              padding: '10px 16px', 
+              backgroundColor: '#242526', 
+              color: '#fff', 
+              borderRadius: '8px', 
+              textDecoration: 'none', 
+              fontSize: '14px', 
+              fontWeight: 'bold',
+              border: '1px solid #3a3b3c',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}
+          >
+            ⚙️ Update Time Slots
+          </Link>
+        </div>
+      </div>
 
       {/* Bahagian Borang Pos */}
       <section style={{ background: '#f4f4f4', padding: '20px', borderRadius: '8px', marginBottom: '30px' }}>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit5 onSubmit={handleSubmit}>
           
-          {/* Pemilihan Page */}
           <div style={{ marginBottom: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <label style={{ fontWeight: 'bold', fontSize: '15px' }}>Pilih Facebook Pages ({selectedPages.length}/{pages.length}):</label>
@@ -156,7 +158,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* Kapsyen */}
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Kapsyen Pos:</label>
             <textarea 
@@ -167,7 +168,6 @@ export default function Home() {
             />
           </div>
           
-          {/* Mod Pos */}
           <div style={{ margin: '15px 0', display: 'flex', gap: '15px', alignItems: 'center' }}>
             <label style={{ cursor: 'pointer' }}><input type="radio" name="mode" checked={postMode === 'now'} onChange={() => setPostMode('now')} /> Pos Sekarang</label>
             <label style={{ cursor: 'pointer' }}><input type="radio" name="mode" checked={postMode === 'schedule'} onChange={() => setPostMode('schedule')} /> Jadual Manual</label>
@@ -189,27 +189,6 @@ export default function Home() {
             {loading ? 'Memproses...' : (postMode === 'queue' ? 'Auto-Queue Pos Ini' : (postMode === 'schedule' ? 'Jadualkan Pos' : 'Hantar Sekarang'))}
           </button>
         </form>
-      </section>
-
-      {/* Bahagian Queue Settings */}
-      <section style={{ background: '#1a1a1a', color: '#fff', padding: '20px', borderRadius: '8px', marginBottom: '30px' }}>
-        <h2>Tetapan Waktu Queue (Auto-Queue)</h2>
-        <p style={{ fontSize: '13px', color: '#aaa', marginBottom: '15px' }}>Tetapkan hari dan masa pilihan anda untuk fungsi Auto-Queue Last.</p>
-        
-        {queueSlots.map((slot, i) => (
-          <div key={i} style={{ marginBottom: '10px', display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <select value={slot.day_of_week} onChange={(e) => updateSlot(i, 'day_of_week', e.target.value)} style={{ padding: '6px', borderRadius: '4px' }}>
-              {DAYS.map((d, idx) => <option key={idx} value={idx}>{d}</option>)}
-            </select>
-            <input type="time" value={slot.time_slot.substring(0, 5)} onChange={(e) => updateSlot(i, 'time_slot', e.target.value)} style={{ padding: '6px', borderRadius: '4px' }} />
-            <button onClick={() => setQueueSlots(queueSlots.filter((_, idx) => idx !== i))} style={{ background: 'red', border: 'none', color: 'white', padding: '6px 10px', borderRadius: '4px', cursor: 'pointer' }}>Padam</button>
-          </div>
-        ))}
-        
-        <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
-          <button onClick={addSlot} style={{ padding: '8px 12px', background: '#444', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>+ Tambah Slot</button>
-          <button onClick={saveQueueSettings} style={{ padding: '8px 12px', background: 'green', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Simpan Semua</button>
-        </div>
       </section>
 
       {/* Jadual Pos */}
