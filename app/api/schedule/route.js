@@ -1,80 +1,91 @@
 import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
-  }
-
-  const { pageIds, message, imageUrl, firstComment } = req.body;
-
-  if (!pageIds || !Array.isArray(pageIds) || pageIds.length === 0) {
-    return res.status(400).json({ error: 'Sila pilih sekurang-kurangnya satu Facebook Page.' });
-  }
-
+export async function POST(request) {
   try {
-    // 1. Dapatkan senarai token daripada Supabase
+    const body = await request.json();
+    const { pageIds, message, imageUrl, firstComment } = body;
+
+    if (!pageIds || !Array.isArray(pageIds) || pageIds.length === 0) {
+      return NextResponse.json(
+        { error: 'Sila pilih sekurang-kurangnya satu Facebook Page.' },
+        { status: 400 }
+      );
+    }
+
+    // 1. Ambil token dari Supabase
     const { data: pages, error: dbError } = await supabase
       .from('pages')
       .select('page_id, page_name, access_token')
       .in('page_id', pageIds);
 
     if (dbError || !pages || pages.length === 0) {
-      return res.status(500).json({ error: 'Gagal mendapatkan data Page daripada database.' });
+      return NextResponse.json(
+        { error: 'Gagal mendapatkan data Page daripada database.' },
+        { status: 500 }
+      );
     }
 
     const results = [];
 
-    // 2. Loop dan hantar posting ke setiap Page
+    // 2. Loop setiap page untuk hantar pos & komen
     for (const page of pages) {
       try {
-        let postEndpoint = `https://graph.facebook.com/v26.0/${page.page_id}/feed`;
-        let postPayload = {
-          message: message,
-          access_token: page.access_token
-        };
+        let postData;
 
-        // Jika terdapat URL Gambar, tukar ke endpoint photos
         if (imageUrl) {
-          postEndpoint = `https://graph.facebook.com/v26.0/${page.page_id}/photos`;
-          postPayload = {
-            url: imageUrl,
-            caption: message,
-            access_token: page.access_token
-          };
+          // Guna endpoint /photos
+          const photoRes = await fetch(
+            `https://graph.facebook.com/v26.0/${page.page_id}/photos`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                url: imageUrl,
+                caption: message,
+                access_token: page.access_token,
+              }),
+            }
+          );
+          postData = await photoRes.json();
+        } else {
+          // Guna endpoint /feed
+          const feedRes = await fetch(
+            `https://graph.facebook.com/v26.0/${page.page_id}/feed`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                message: message,
+                access_token: page.access_token,
+              }),
+            }
+          );
+          postData = await feedRes.json();
         }
 
-        // Hantar Post Utama
-        const postRes = await fetch(postEndpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(postPayload)
-        });
-
-        const postData = await postRes.json();
-
-        if (!postRes.ok || postData.error) {
-          console.error(`Ralat pos ke ${page.page_name}:`, postData.error);
+        if (postData.error) {
           results.push({
             page: page.page_name,
             success: false,
-            error: postData.error?.message || 'Gagal pos'
+            error: postData.error?.message || 'Gagal membuat pos',
           });
           continue;
         }
 
-        // 3. Logik Menghantar First Comment
+        // 3. Hantar First Comment
         let commentSuccess = false;
         let commentError = null;
 
         if (firstComment && firstComment.trim() !== '') {
-          // Beri jeda 2 saat supaya Facebook selesai indeks pos/gambar
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          // Beri jeda 3 saat supaya Meta siap proses ID pos di server mereka
+          await new Promise((resolve) => setTimeout(resolve, 3000));
 
-          // UTAMAKAN post_id jika pos bergambar, fallback kepada id biasa
+          // Pastikan sasaran ID adalah Page Post ID komposit atau Photo ID
           const targetCommentId = postData.post_id || postData.id;
 
           const commentRes = await fetch(
@@ -84,8 +95,8 @@ export default async function handler(req, res) {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 message: firstComment,
-                access_token: page.access_token
-              })
+                access_token: page.access_token,
+              }),
             }
           );
 
@@ -94,8 +105,8 @@ export default async function handler(req, res) {
           if (commentRes.ok && !commentData.error) {
             commentSuccess = true;
           } else {
-            console.error(`Ralat komen di ${page.page_name}:`, commentData.error);
-            commentError = commentData.error?.message || 'Gagal komen';
+            console.error(`Ralat Komen (${page.page_name}):`, commentData.error);
+            commentError = commentData.error?.message || 'Gagal menghantar komen';
           }
         }
 
@@ -104,23 +115,23 @@ export default async function handler(req, res) {
           success: true,
           postId: postData.post_id || postData.id,
           commentSuccess: firstComment ? commentSuccess : null,
-          commentError: commentError
+          commentError: commentError,
         });
 
       } catch (err) {
-        console.error(`Exception pada ${page.page_name}:`, err);
         results.push({
           page: page.page_name,
           success: false,
-          error: err.message
+          error: err.message,
         });
       }
     }
 
-    return res.status(200).json({ results });
-
+    return NextResponse.json({ results }, { status: 200 });
   } catch (error) {
-    console.error('Server error:', error);
-    return res.status(500).json({ error: error.message || 'Ralat dalaman server.' });
+    return NextResponse.json(
+      { error: error.message || 'Ralat dalaman server.' },
+      { status: 500 }
+    );
   }
 }
