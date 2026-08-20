@@ -8,7 +8,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { pageIds, message, imageUrl, firstComment } = body;
+    const { pageIds, message, imageUrl, videoUrl, firstComment } = body;
 
     if (!pageIds || !Array.isArray(pageIds) || pageIds.length === 0) {
       return NextResponse.json(
@@ -17,7 +17,7 @@ export async function POST(request) {
       );
     }
 
-    // 1. Ambil token dari Supabase
+    // 1. Ambil access token dari Supabase
     const { data: pages, error: dbError } = await supabase
       .from('pages')
       .select('page_id, page_name, access_token')
@@ -32,14 +32,28 @@ export async function POST(request) {
 
     const results = [];
 
-    // 2. Loop setiap page untuk hantar pos & komen
+    // 2. Loop setiap page untuk hantar pos mengikut jenis media
     for (const page of pages) {
       try {
-        let postData;
+        let postRes;
 
-        if (imageUrl) {
-          // Guna endpoint /photos
-          const photoRes = await fetch(
+        if (videoUrl) {
+          // --- PENGENDALIAN VIDEO ---
+          postRes = await fetch(
+            `https://graph.facebook.com/v26.0/${page.page_id}/videos`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                file_url: videoUrl,
+                description: message,
+                access_token: page.access_token,
+              }),
+            }
+          );
+        } else if (imageUrl) {
+          // --- PENGENDALIAN GAMBAR ---
+          postRes = await fetch(
             `https://graph.facebook.com/v26.0/${page.page_id}/photos`,
             {
               method: 'POST',
@@ -51,10 +65,9 @@ export async function POST(request) {
               }),
             }
           );
-          postData = await photoRes.json();
         } else {
-          // Guna endpoint /feed
-          const feedRes = await fetch(
+          // --- PENGENDALIAN TEKS SAHAJA ---
+          postRes = await fetch(
             `https://graph.facebook.com/v26.0/${page.page_id}/feed`,
             {
               method: 'POST',
@@ -65,10 +78,11 @@ export async function POST(request) {
               }),
             }
           );
-          postData = await feedRes.json();
         }
 
-        if (postData.error) {
+        const postData = await postRes.json();
+
+        if (!postRes.ok || postData.error) {
           results.push({
             page: page.page_name,
             success: false,
@@ -82,10 +96,11 @@ export async function POST(request) {
         let commentError = null;
 
         if (firstComment && firstComment.trim() !== '') {
-          // Beri jeda 3 saat supaya Meta siap proses ID pos di server mereka
-          await new Promise((resolve) => setTimeout(resolve, 3000));
+          // Video memerlukan sedikit masa pemprosesan sebelum bersedia menerima komen
+          const delayTime = videoUrl ? 4000 : 2000;
+          await new Promise((resolve) => setTimeout(resolve, delayTime));
 
-          // Pastikan sasaran ID adalah Page Post ID komposit atau Photo ID
+          // Sasaran ID: Utamakan post_id jika ada (gambar), atau id terus (video / feed)
           const targetCommentId = postData.post_id || postData.id;
 
           const commentRes = await fetch(
@@ -105,7 +120,6 @@ export async function POST(request) {
           if (commentRes.ok && !commentData.error) {
             commentSuccess = true;
           } else {
-            console.error(`Ralat Komen (${page.page_name}):`, commentData.error);
             commentError = commentData.error?.message || 'Gagal menghantar komen';
           }
         }
