@@ -8,6 +8,7 @@ export default function Home() {
   const [pages, setPages] = useState([]);
   const [selectedPages, setSelectedPages] = useState([]);
   const [message, setMessage] = useState('');
+  const [firstComment, setFirstComment] = useState('');
   const [postMode, setPostMode] = useState('now'); 
   const [scheduledDateTime, setScheduledDateTime] = useState('');
   const [scheduledPosts, setScheduledPosts] = useState([]);
@@ -67,6 +68,7 @@ export default function Home() {
     const payload = {
       pageIds: selectedPages,
       message,
+      firstComment,
       postMode,
       scheduledAt: postMode === 'schedule' ? scheduledDateTime : null
     };
@@ -83,6 +85,7 @@ export default function Home() {
 
       alert(data.message || 'Berjaya!');
       setMessage('');
+      setFirstComment('');
       setScheduledDateTime('');
 
       const { data: sData } = await supabase.from('scheduled_posts').select('*').order('created_at', { ascending: false });
@@ -126,7 +129,7 @@ export default function Home() {
 
       {/* Bahagian Borang Pos */}
       <section style={{ background: '#f4f4f4', padding: '20px', borderRadius: '8px', marginBottom: '30px' }}>
-        <form onSubmit5 onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit}>
           
           <div style={{ marginBottom: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -165,6 +168,18 @@ export default function Home() {
               onChange={(e) => setMessage(e.target.value)} 
               placeholder="Tulis kapsyen anda di sini..." 
               style={{ width: '100%', height: '100px', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} 
+            />
+          </div>
+
+          {/* Ruangan First Comment */}
+          <div style={{ marginBottom: '15px' }}>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>First Comment (Pilihan):</label>
+            <input 
+              type="text" 
+              value={firstComment} 
+              onChange={(e) => setFirstComment(e.target.value)} 
+              placeholder="Tulis komen pertama (cth: link produk di ruangan komen)..." 
+              style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} 
             />
           </div>
           
