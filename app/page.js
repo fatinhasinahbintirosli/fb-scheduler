@@ -1,192 +1,259 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabaseClient';
 
-export default function Dashboard() {
+import { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+export default function Home() {
   const [pages, setPages] = useState([]);
   const [selectedPages, setSelectedPages] = useState([]);
-  const [postText, setPostText] = useState('');
-  const [mediaFile, setMediaFile] = useState(null);
-  const [mediaPreview, setMediaPreview] = useState('');
-  const [commentText, setCommentText] = useState('');
-  const [commentFile, setCommentFile] = useState(null);
-  const [commentPreview, setCommentPreview] = useState('');
+  const [message, setMessage] = useState('');
+  const [mediaType, setMediaType] = useState('image'); // 'image', 'video', atau 'none'
+  const [mediaUrl, setMediaUrl] = useState('');
+  const [firstComment, setFirstComment] = useState('');
   const [loading, setLoading] = useState(false);
+  const [fetchingPages, setFetchingPages] = useState(true);
 
+  // Ambil senarai Facebook Pages dari Supabase
   useEffect(() => {
-    async function loadPages() {
-      const { data } = await supabase.from('pages').select('*').eq('is_active', true);
-      if (data) setPages(data);
+    async function fetchPages() {
+      try {
+        const { data, error } = await supabase
+          .from('pages')
+          .select('page_id, page_name')
+          .order('page_name', { ascending: true });
+
+        if (error) throw error;
+        setPages(data || []);
+      } catch (err) {
+        console.error('Ralat memuatkan senarai Page:', err);
+      } finally {
+        setFetchingPages(false);
+      }
     }
-    loadPages();
+    fetchPages();
   }, []);
 
-  const toggleSelectAll = () => {
-    if (selectedPages.length === pages.length) setSelectedPages([]);
-    else setSelectedPages(pages.map((p) => p.page_id));
-  };
-
-  const togglePage = (id) => {
-    setSelectedPages((prev) =>
-      prev.includes(id) ? prev.filter((pId) => pId !== id) : [...prev, id]
-    );
-  };
-
-  const handleUpload = async (file) => {
-    if (!file) return null;
-    const cleanName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
-    const fileName = `${Date.now()}-${cleanName}`;
-    const { error } = await supabase.storage.from('post-media').upload(fileName, file);
-    if (error) {
-      console.error('Storage Upload Error:', error);
-      return null;
+  const handleSelectAll = () => {
+    if (selectedPages.length === pages.length) {
+      setSelectedPages([]);
+    } else {
+      setSelectedPages(pages.map((p) => p.page_id));
     }
-    const { data: publicData } = supabase.storage.from('post-media').getPublicUrl(fileName);
-    return publicData.publicUrl;
   };
 
-  const handlePublish = async () => {
-    if (selectedPages.length === 0) return alert('Sila pilih sekurang-kurangnya 1 Page!');
+  const handlePageToggle = (pageId) => {
+    if (selectedPages.includes(pageId)) {
+      setSelectedPages(selectedPages.filter((id) => id !== pageId));
+    } else {
+      setSelectedPages([...selectedPages, pageId]);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (selectedPages.length === 0) {
+      alert('Sila pilih sekurang-kurangnya satu Facebook Page.');
+      return;
+    }
+
+    if (!message && !mediaUrl) {
+      alert('Sila masukkan teks kapsyen atau pautan media.');
+      return;
+    }
+
     setLoading(true);
 
-    const mediaUrl = await handleUpload(mediaFile);
-    const commentImageUrl = await handleUpload(commentFile);
-    const targetPages = pages.filter((p) => selectedPages.includes(p.page_id));
+    try {
+      const payload = {
+        pageIds: selectedPages,
+        message: message,
+        imageUrl: mediaType === 'image' ? mediaUrl.trim() : null,
+        videoUrl: mediaType === 'video' ? mediaUrl.trim() : null,
+        firstComment: firstComment.trim() || null,
+      };
 
-    const res = await fetch('/api/schedule', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        pages: targetPages,
-        message: postText,
-        mediaUrl,
-        commentText,
-        commentImageUrl
-      })
-    });
+      const res = await fetch('/api/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-    const result = await res.json();
-    setLoading(false);
+      const data = await res.json();
 
-    if (!result.success) {
-      return alert('Ralat Sistem: ' + result.error);
-    }
+      if (!res.ok) {
+        throw new Error(data.error || 'Gagal menghantar pos.');
+      }
 
-    const failedPosts = result.results.filter((r) => !r.success);
-    const failedComments = result.results.filter((r) => r.success && !r.commentSuccess);
+      // Semak keputusan setiap page
+      let successCount = 0;
+      let errorMessages = [];
 
-    if (failedPosts.length > 0) {
-      alert('Ralat Pos Facebook:\n' + failedPosts.map((e) => `${e.page}: ${e.error}`).join('\n'));
-    } else if (failedComments.length > 0) {
-      alert('Pos Berjaya, tetapi Ralat pada Komen:\n' + failedComments.map((e) => `${e.page}: ${e.commentError}`).join('\n'));
-    } else {
-      alert('Semua Pos & Komen Pertama berjaya diterbitkan!');
+      data.results.forEach((item) => {
+        if (item.success) {
+          successCount++;
+          if (item.commentError) {
+            errorMessages.push(`${item.page}: Pos berjaya, tapi ralat komen (${item.commentError})`);
+          }
+        } else {
+          errorMessages.push(`${item.page}: Gagal (${item.error})`);
+        }
+      });
+
+      if (errorMessages.length === 0) {
+        alert(`Berjaya! Pos dan komen diterbitkan ke ${successCount} Page.`);
+        setMessage('');
+        setMediaUrl('');
+        setFirstComment('');
+      } else {
+        alert(
+          `Selesai dengan beberapa makluman:\n\n` +
+          `Berjaya: ${successCount}/${pages.length}\n` +
+          errorMessages.join('\n')
+        );
+      }
+    } catch (err) {
+      alert(`Ralat: ${err.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'sans-serif', background: '#f0f2f5' }}>
-      {/* Panel Kiri */}
-      <div style={{ flex: 1, padding: '24px', borderRight: '1px solid #ddd', overflowY: 'auto' }}>
-        <h2>Facebook Multi-Page Scheduler</h2>
+    <main style={{ maxWidth: '750px', margin: '40px auto', padding: '24px', fontFamily: 'system-ui, sans-serif', backgroundColor: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+      <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px', color: '#1877f2' }}>Facebook Post & Video Scheduler</h1>
+      <p style={{ color: '#65676b', marginBottom: '24px', fontSize: '14px' }}>Hantar pos gambar, video berserta auto first comment serentak ke semua Facebook Page.</p>
 
-        <div style={{ background: '#fff', padding: '16px', borderRadius: '8px', marginBottom: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-            <strong>Pilih Pages ({selectedPages.length}/{pages.length})</strong>
-            <button onClick={toggleSelectAll} style={{ fontSize: '12px' }}>Pilih Semua</button>
+      <form onSubmit={handleSubmit}>
+        {/* Bahagian Pemilihan Page */}
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <label style={{ fontWeight: 'bold', fontSize: '15px' }}>Pilih Facebook Pages ({selectedPages.length}/{pages.length}):</label>
+            <button
+              type="button"
+              onClick={handleSelectAll}
+              style={{ fontSize: '13px', background: 'none', border: 'none', color: '#1877f2', cursor: 'pointer', textDecoration: 'underline' }}
+            >
+              {selectedPages.length === pages.length ? 'Nyahpilih Semua' : 'Pilih Semua'}
+            </button>
           </div>
-          <div style={{ maxHeight: '120px', overflowY: 'auto' }}>
-            {pages.map((p) => (
-              <label key={p.page_id} style={{ display: 'block', margin: '4px 0' }}>
-                <input
-                  type="checkbox"
-                  checked={selectedPages.includes(p.page_id)}
-                  onChange={() => togglePage(p.page_id)}
-                />{' '}
-                {p.page_name}
-              </label>
-            ))}
-          </div>
-        </div>
 
-        <div style={{ background: '#fff', padding: '16px', borderRadius: '8px', marginBottom: '16px' }}>
-          <label><strong>Kandungan Pos Utama:</strong></label>
-          <textarea
-            rows="4"
-            style={{ width: '100%', marginTop: '6px' }}
-            placeholder="Tulis sesuatu..."
-            value={postText}
-            onChange={(e) => setPostText(e.target.value)}
-          />
-          <input
-            type="file"
-            accept="image/*"
-            style={{ marginTop: '8px' }}
-            onChange={(e) => {
-              if (e.target.files[0]) {
-                setMediaFile(e.target.files[0]);
-                setMediaPreview(URL.createObjectURL(e.target.files[0]));
-              }
-            }}
-          />
-        </div>
-
-        <div style={{ background: '#fff', padding: '16px', borderRadius: '8px', marginBottom: '16px' }}>
-          <label><strong>Auto First Comment:</strong></label>
-          <textarea
-            rows="3"
-            style={{ width: '100%', marginTop: '6px' }}
-            placeholder="Tulis komen pertama (link affiliate, Shopee, dsb)..."
-            value={commentText}
-            onChange={(e) => setCommentText(e.target.value)}
-          />
-          <input
-            type="file"
-            accept="image/*"
-            style={{ marginTop: '8px' }}
-            onChange={(e) => {
-              if (e.target.files[0]) {
-                setCommentFile(e.target.files[0]);
-                setCommentPreview(URL.createObjectURL(e.target.files[0]));
-              }
-            }}
-          />
-        </div>
-
-        <button
-          onClick={handlePublish}
-          disabled={loading}
-          style={{ width: '100%', padding: '12px', background: '#1877f2', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
-        >
-          {loading ? 'Sedang Menerbitkan...' : 'Terbitkan Sekarang'}
-        </button>
-      </div>
-
-      {/* Panel Kanan */}
-      <div style={{ flex: 1, padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-        <h3 style={{ alignSelf: 'flex-start' }}>Pratonton (Live Preview)</h3>
-        <div style={{ width: '450px', background: '#fff', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-          <div style={{ padding: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{ width: '40px', height: '40px', background: '#0866ff', color: '#fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>FB</div>
-            <div>
-              <div style={{ fontWeight: 'bold' }}>{selectedPages.length > 0 ? `${selectedPages.length} Pages Terpilih` : 'Nama Page'}</div>
-              <div style={{ fontSize: '12px', color: '#65676b' }}>Baru sebentar tadi · 🌐</div>
-            </div>
-          </div>
-          <div style={{ padding: '0 12px 12px 12px', whiteSpace: 'pre-wrap' }}>{postText || 'Kandungan teks pos akan dipaparkan di sini...'}</div>
-          {mediaPreview && <img src={mediaPreview} alt="Preview" style={{ width: '100%', maxHeight: '300px', objectFit: 'cover' }} />}
-
-          {(commentText || commentPreview) && (
-            <div style={{ background: '#f0f2f5', padding: '12px', borderTop: '1px solid #e4e6eb' }}>
-              <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#65676b', marginBottom: '6px' }}>Komen Pertama (Auto-Comment):</div>
-              <div style={{ background: '#fff', padding: '8px 12px', borderRadius: '18px', display: 'inline-block', maxWidth: '85%' }}>
-                <span style={{ fontSize: '13px' }}>{commentText}</span>
-                {commentPreview && <img src={commentPreview} alt="Comment Preview" style={{ display: 'block', width: '100%', maxHeight: '120px', borderRadius: '8px', marginTop: '6px' }} />}
-              </div>
+          {fetchingPages ? (
+            <p style={{ fontSize: '13px', color: '#888' }}>Sedang memuatkan senarai Page...</p>
+          ) : (
+            <div style={{ maxHeight: '160px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '8px', padding: '10px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              {pages.map((page) => (
+                <label key={page.page_id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedPages.includes(page.page_id)}
+                    onChange={() => handlePageToggle(page.page_id)}
+                  />
+                  <span>{page.page_name}</span>
+                </label>
+              ))}
             </div>
           )}
         </div>
-      </div>
-    </div>
+
+        {/* Bahagian Teks Kapsyen */}
+        <div style={{ marginBottom: '16px' }}>
+          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px', fontSize: '14px' }}>Mesej / Kapsyen Pos:</label>
+          <textarea
+            rows="4"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Tulis kapsyen pos anda di sini..."
+            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ccc', boxSizing: 'border-box', fontSize: '14px' }}
+          />
+        </div>
+
+        {/* Bahagian Pilihan Media (Gambar vs Video) */}
+        <div style={{ marginBottom: '16px' }}>
+          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px', fontSize: '14px' }}>Jenis Media:</label>
+          <div style={{ display: 'flex', gap: '20px', marginBottom: '8px' }}>
+            <label style={{ cursor: 'pointer', fontSize: '14px' }}>
+              <input
+                type="radio"
+                name="mediaType"
+                value="image"
+                checked={mediaType === 'image'}
+                onChange={() => setMediaType('image')}
+                style={{ marginRight: '6px' }}
+              />
+              Gambar (Image URL)
+            </label>
+            <label style={{ cursor: 'pointer', fontSize: '14px' }}>
+              <input
+                type="radio"
+                name="mediaType"
+                value="video"
+                checked={mediaType === 'video'}
+                onChange={() => setMediaType('video')}
+                style={{ marginRight: '6px' }}
+              />
+              Video (.mp4 / direct URL)
+            </label>
+            <label style={{ cursor: 'pointer', fontSize: '14px' }}>
+              <input
+                type="radio"
+                name="mediaType"
+                value="none"
+                checked={mediaType === 'none'}
+                onChange={() => setMediaType('none')}
+                style={{ marginRight: '6px' }}
+              />
+              Tiada Media (Teks Sahaja)
+            </label>
+          </div>
+
+          {mediaType !== 'none' && (
+            <input
+              type="url"
+              value={mediaUrl}
+              onChange={(e) => setMediaUrl(e.target.value)}
+              placeholder={mediaType === 'image' ? "https://example.com/gambar.jpg" : "https://example.com/video.mp4"}
+              style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ccc', boxSizing: 'border-box', fontSize: '14px' }}
+            />
+          )}
+        </div>
+
+        {/* Bahagian First Comment */}
+        <div style={{ marginBottom: '24px' }}>
+          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px', fontSize: '14px' }}>First Comment (Pilihan):</label>
+          <textarea
+            rows="3"
+            value={firstComment}
+            onChange={(e) => setFirstComment(e.target.value)}
+            placeholder="Komen pertama yang akan dipos automatik selepas pos disiarkan (cth: Pautan Shopee / Info lanjut)..."
+            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ccc', boxSizing: 'border-box', fontSize: '14px' }}
+          />
+        </div>
+
+        {/* Butang Submit */}
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            width: '100%',
+            padding: '12px',
+            backgroundColor: loading ? '#93c5fd' : '#1877f2',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '8px',
+            fontSize: '16px',
+            fontWeight: 'bold',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            transition: 'background-color 0.2s',
+          }}
+        >
+          {loading ? 'Sedang Memproses Pos...' : 'Hantar Pos Sekarang'}
+        </button>
+      </form>
+    </main>
   );
 }
