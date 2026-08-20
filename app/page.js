@@ -7,16 +7,18 @@ export default function Home() {
   const [pages, setPages] = useState([]);
   const [selectedPages, setSelectedPages] = useState([]);
   const [message, setMessage] = useState('');
-  const [mediaType, setMediaType] = useState('none'); // 'none', 'image', 'video'
+  const [mediaType, setMediaType] = useState('none');
   
-  // State Fail & URL Media Utama
   const [mediaFile, setMediaFile] = useState(null);
   const [mediaUrlInput, setMediaUrlInput] = useState('');
-  const [uploadMethod, setUploadMethod] = useState('direct'); // 'direct' atau 'url'
+  const [uploadMethod, setUploadMethod] = useState('direct');
 
-  // State First Comment
   const [firstComment, setFirstComment] = useState('');
   const [commentImageFile, setCommentImageFile] = useState(null);
+
+  // State Jadual
+  const [postMode, setPostMode] = useState('now'); // 'now' atau 'schedule'
+  const [scheduledDateTime, setScheduledDateTime] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [fetchingPages, setFetchingPages] = useState(true);
@@ -26,7 +28,6 @@ export default function Home() {
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  // Ambil senarai Facebook Pages dari Supabase
   useEffect(() => {
     async function fetchPages() {
       try {
@@ -46,7 +47,6 @@ export default function Home() {
     fetchPages();
   }, []);
 
-  // Fungsi muat naik fail ke bucket 'post-media'
   const uploadToStorage = async (file) => {
     const fileExt = file.name.split('.').pop();
     const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
@@ -89,22 +89,26 @@ export default function Home() {
     }
 
     if (!message && mediaType === 'none' && !mediaFile && !mediaUrlInput) {
-      alert('Sila masukkan teks kapsyen atau pilih fail media.');
+      alert('Sila masukkan teks kapsyen atau pilih media.');
+      return;
+    }
+
+    if (postMode === 'schedule' && !scheduledDateTime) {
+      alert('Sila tetapkan tarikh dan masa untuk penjadualan.');
       return;
     }
 
     setLoading(true);
-    setUploadStatus('Memproses fail...');
+    setUploadStatus('Memproses...');
 
     try {
       let finalImageUrl = null;
       let finalVideoUrl = null;
       let finalCommentImageUrl = null;
 
-      // 1. Muat naik Media Utama
       if (mediaType !== 'none') {
         if (uploadMethod === 'direct' && mediaFile) {
-          setUploadStatus(`Sedang memuat naik ${mediaType} ke Supabase...`);
+          setUploadStatus(`Sedang memuat naik fail ${mediaType}...`);
           const uploadedUrl = await uploadToStorage(mediaFile);
           if (mediaType === 'image') finalImageUrl = uploadedUrl;
           if (mediaType === 'video') finalVideoUrl = uploadedUrl;
@@ -114,13 +118,12 @@ export default function Home() {
         }
       }
 
-      // 2. Muat naik Gambar First Comment
       if (commentImageFile) {
         setUploadStatus('Sedang memuat naik gambar First Comment...');
         finalCommentImageUrl = await uploadToStorage(commentImageFile);
       }
 
-      setUploadStatus('Menerbitkan pos ke Facebook...');
+      setUploadStatus(postMode === 'schedule' ? 'Menyimpan jadual pos...' : 'Menerbitkan pos...');
 
       const payload = {
         pageIds: selectedPages,
@@ -129,6 +132,7 @@ export default function Home() {
         videoUrl: finalVideoUrl,
         firstComment: firstComment.trim() || null,
         commentImageUrl: finalCommentImageUrl,
+        scheduledAt: postMode === 'schedule' ? scheduledDateTime : null,
       };
 
       const res = await fetch('/api/schedule', {
@@ -140,37 +144,35 @@ export default function Home() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'Gagal menghantar pos.');
+        throw new Error(data.error || 'Gagal memproses permintaan.');
       }
 
-      let successCount = 0;
-      let errorMessages = [];
-
-      data.results.forEach((item) => {
-        if (item.success) {
-          successCount++;
-          if (item.commentError) {
-            errorMessages.push(`${item.page}: Pos berjaya, ralat komen (${item.commentError})`);
-          }
-        } else {
-          errorMessages.push(`${item.page}: Gagal (${item.error})`);
-        }
-      });
-
-      if (errorMessages.length === 0) {
-        alert(`Berjaya! Pos dan First Comment diterbitkan ke ${successCount} Page.`);
-        setMessage('');
-        setMediaFile(null);
-        setMediaUrlInput('');
-        setFirstComment('');
-        setCommentImageFile(null);
+      if (data.scheduled) {
+        alert('Pos berjaya dijadualkan! Sistem akan menyiarkannya mengikut masa yang ditetapkan.');
       } else {
-        alert(
-          `Selesai dengan makluman:\n\n` +
-          `Berjaya: ${successCount}/${pages.length}\n` +
-          errorMessages.join('\n')
-        );
+        let successCount = 0;
+        let errorMessages = [];
+
+        data.results.forEach((item) => {
+          if (item.success) {
+            successCount++;
+            if (item.commentError) {
+              errorMessages.push(`${item.page}: Pos berjaya, ralat komen (${item.commentError})`);
+            }
+          } else {
+            errorMessages.push(`${item.page}: Gagal (${item.error})`);
+          }
+        });
+
+        alert(`Selesai! Berjaya: ${successCount}/${pages.length}\n` + (errorMessages.length > 0 ? errorMessages.join('\n') : ''));
       }
+
+      setMessage('');
+      setMediaFile(null);
+      setMediaUrlInput('');
+      setFirstComment('');
+      setCommentImageFile(null);
+      setScheduledDateTime('');
     } catch (err) {
       alert(`Ralat: ${err.message}`);
     } finally {
@@ -182,10 +184,10 @@ export default function Home() {
   return (
     <main style={{ maxWidth: '750px', margin: '40px auto', padding: '24px', fontFamily: 'system-ui, sans-serif', backgroundColor: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
       <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px', color: '#1877f2' }}>Facebook Post & Video Scheduler</h1>
-      <p style={{ color: '#65676b', marginBottom: '24px', fontSize: '14px' }}>Hantar pos teks, gambar, video serta komen pertama serentak ke semua Facebook Page.</p>
+      <p style={{ color: '#65676b', marginBottom: '24px', fontSize: '14px' }}>Hantar atau jadualkan pos serentak ke semua Facebook Page.</p>
 
       <form onSubmit={handleSubmit}>
-        {/* Bahagian Pemilihan Page */}
+        {/* Pemilihan Page */}
         <div style={{ marginBottom: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <label style={{ fontWeight: 'bold', fontSize: '15px' }}>Pilih Facebook Pages ({selectedPages.length}/{pages.length}):</label>
@@ -216,7 +218,7 @@ export default function Home() {
           )}
         </div>
 
-        {/* Bahagian Kapsyen Pos */}
+        {/* Kapsyen Pos */}
         <div style={{ marginBottom: '16px' }}>
           <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px', fontSize: '14px' }}>Mesej / Kapsyen Pos:</label>
           <textarea
@@ -228,7 +230,7 @@ export default function Home() {
           />
         </div>
 
-        {/* Bahagian Media Utama */}
+        {/* Media Utama */}
         <div style={{ marginBottom: '16px', padding: '14px', backgroundColor: '#f7f8fa', borderRadius: '8px' }}>
           <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px', fontSize: '14px' }}>Media Utama Pos:</label>
           <div style={{ display: 'flex', gap: '16px', marginBottom: '12px' }}>
@@ -251,7 +253,7 @@ export default function Home() {
               <div style={{ display: 'flex', gap: '14px', marginBottom: '8px', fontSize: '13px' }}>
                 <label style={{ cursor: 'pointer' }}>
                   <input type="radio" name="uploadMethod" value="direct" checked={uploadMethod === 'direct'} onChange={() => setUploadMethod('direct')} style={{ marginRight: '4px' }} />
-                  Direct Upload Fail (PC / Phone)
+                  Direct Upload Fail
                 </label>
                 <label style={{ cursor: 'pointer' }}>
                   <input type="radio" name="uploadMethod" value="url" checked={uploadMethod === 'url'} onChange={() => setUploadMethod('url')} style={{ marginRight: '4px' }} />
@@ -279,8 +281,8 @@ export default function Home() {
           )}
         </div>
 
-        {/* Bahagian First Comment */}
-        <div style={{ marginBottom: '24px', padding: '14px', backgroundColor: '#f0f7ff', borderRadius: '8px', border: '1px solid #cce3ff' }}>
+        {/* First Comment */}
+        <div style={{ marginBottom: '16px', padding: '14px', backgroundColor: '#f0f7ff', borderRadius: '8px', border: '1px solid #cce3ff' }}>
           <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px', fontSize: '14px', color: '#0056b3' }}>Auto First Comment (Pilihan):</label>
           <textarea
             rows="3"
@@ -289,7 +291,6 @@ export default function Home() {
             placeholder="Tulis komen pertama automatik..."
             style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #b8daff', boxSizing: 'border-box', fontSize: '14px', marginBottom: '10px' }}
           />
-
           <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', fontSize: '13px', color: '#0056b3' }}>Lampirkan Gambar pada Komen (Pilihan):</label>
           <input
             type="file"
@@ -299,6 +300,33 @@ export default function Home() {
           />
         </div>
 
+        {/* Pilihan Masa & Jadual */}
+        <div style={{ marginBottom: '24px', padding: '14px', backgroundColor: '#fdf8ea', borderRadius: '8px', border: '1px solid #ffeeba' }}>
+          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px', fontSize: '14px', color: '#856404' }}>Waktu Penyiaran:</label>
+          <div style={{ display: 'flex', gap: '20px', marginBottom: '10px' }}>
+            <label style={{ cursor: 'pointer', fontSize: '14px' }}>
+              <input type="radio" name="postMode" value="now" checked={postMode === 'now'} onChange={() => setPostMode('now')} style={{ marginRight: '6px' }} />
+              Pos Serta-Merta (Sekarang)
+            </label>
+            <label style={{ cursor: 'pointer', fontSize: '14px' }}>
+              <input type="radio" name="postMode" value="schedule" checked={postMode === 'schedule'} onChange={() => setPostMode('schedule')} style={{ marginRight: '6px' }} />
+              Jadualkan Pos (Schedule)
+            </label>
+          </div>
+
+          {postMode === 'schedule' && (
+            <div>
+              <label style={{ display: 'block', fontSize: '13px', marginBottom: '4px', color: '#856404' }}>Pilih Tarikh & Masa:</label>
+              <input
+                type="datetime-local"
+                value={scheduledDateTime}
+                onChange={(e) => setScheduledDateTime(e.target.value)}
+                style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '14px' }}
+              />
+            </div>
+          )}
+        </div>
+
         {/* Butang Submit */}
         <button
           type="submit"
@@ -306,7 +334,7 @@ export default function Home() {
           style={{
             width: '100%',
             padding: '12px',
-            backgroundColor: loading ? '#93c5fd' : '#1877f2',
+            backgroundColor: loading ? '#93c5fd' : (postMode === 'schedule' ? '#28a745' : '#1877f2'),
             color: '#fff',
             border: 'none',
             borderRadius: '8px',
@@ -315,7 +343,7 @@ export default function Home() {
             cursor: loading ? 'not-allowed' : 'pointer',
           }}
         >
-          {loading ? (uploadStatus || 'Sedang Memproses...') : 'Hantar Pos Sekarang'}
+          {loading ? (uploadStatus || 'Sedang Memproses...') : (postMode === 'schedule' ? 'Jadualkan Pos' : 'Hantar Pos Sekarang')}
         </button>
       </form>
     </main>
