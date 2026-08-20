@@ -3,6 +3,56 @@ import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
+// Fungsi untuk mencari slot masa kosong seterusnya untuk Auto-Queue
+async function getNextQueueDate(supabase) {
+  const { data: slots, error: slotsError } = await supabase.from('queue_settings').select('*').eq('is_active', true);
+  if (slotsError || !slots || slots.length === 0) {
+    throw new Error('Tiada tetapan queue yang aktif. Sila tetapkan jadual queue terlebih dahulu.');
+  }
+
+  const { data: pendingPosts, error: postsError } = await supabase.from('scheduled_posts').select('scheduled_at').eq('status', 'pending');
+  if (postsError) {
+    throw new Error('Gagal menyemak pos berjadual sedia ada.');
+  }
+
+  const now = new Date();
+
+  // Kita cari slot dalam 7 hari akan datang
+  for (let i = 0; i < 7; i++) {
+    let checkDate = new Date(now);
+    checkDate.setDate(now.getDate() + i);
+    const dayOfWeek = checkDate.getDay();
+
+    // Tapis slot mengikut hari yang sepadan
+    const todaysSlots = slots.filter(s => s.day_of_week === dayOfWeek);
+
+    // Susun slot mengikut masa (pagi ke malam)
+    todaysSlots.sort((a, b) => a.time_slot.localeCompare(b.time_slot));
+
+    for (let slot of todaysSlots) {
+      const [h, m] = slot.time_slot.split(':');
+      let targetDate = new Date(checkDate);
+      targetDate.setHours(parseInt(h), parseInt(m), 0, 0);
+
+      // Pastikan masa sasaran adalah selepas masa sekarang
+      if (targetDate > now) {
+        // Semak sama ada slot ini sudah diambil oleh pos berjadual yang lain
+        const isTaken = pendingPosts.some(p => {
+          const pDate = new Date(p.scheduled_at);
+          return Math.abs(pDate.getTime() - targetDate.getTime()) < 60000; // Toleransi 1 minit
+        });
+
+        if (!isTaken) {
+          return targetDate.toISOString();
+        }
+      }
+    }
+  }
+
+  // Jika tiada slot kosong dalam 7 hari, anjakkan 24 jam dari sekarang sebagai fallback
+  return new Date(now.getTime() + 86400000).toISOString();
+}
+
 export async function POST(request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
@@ -17,16 +67,32 @@ export async function POST(request) {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     const body = await request.json();
-    const { pageIds, message, imageUrl, videoUrl, firstComment, commentImageUrl, scheduledAt } = body;
+    const { pageIds, message, imageUrl, videoUrl, firstComment, commentImageUrl, scheduledAt, postMode } = body;
 
     if (!pageIds || !Array.isArray(pageIds) || pageIds.length === 0) {
       return NextResponse.json({ error: 'Sila pilih sekurang-kurangnya satu Facebook Page.' }, { status: 400 });
     }
 
-    // A. Simpan ke database jika pos dijadualkan
-    if (scheduledAt) {
-      // Pastikan masa dibaca mengikut zon masa Malaysia (UTC+8) dengan menambah '+08:00' jika tiada penanda zon masa
-      const formattedScheduledAt = scheduledAt.endsWith('Z') || scheduledAt.includes('+') ? scheduledAt : `${scheduledAt}:00+08:00`;
+    // A. Simpan ke database jika pos dijadualkan atau menggunakan mod queue
+    if (postMode === 'schedule' || postMode === 'queue' || scheduledAt) {
+      let finalScheduledAt = scheduledAt;
+
+      // Jika guna mod queue, cari masa automatik dari queue_settings
+      if (postMode === 'queue') {
+        try {
+          finalScheduledAt = await getNextQueueDate(supabase);
+        } catch (queueErr) {
+          return NextResponse.json({ error: queueErr.message }, { status: 400 });
+        }
+      } else if (scheduledAt) {
+        // Pastikan format masa mengikut zon masa Malaysia (UTC+8)
+        finalScheduledAt = scheduledAt.endsWith('Z') || scheduledAt.includes('+') ? scheduledAt : `${scheduledAt}:00+08:00`;
+        finalScheduledAt = new Date(finalScheduledAt).toISOString();
+      }
+
+      if (!finalScheduledAt) {
+        return NextResponse.json({ error: 'Tarikh dan masa penjadualan tidak sah.' }, { status: 400 });
+      }
 
       const { error: insertError } = await supabase.from('scheduled_posts').insert({
         page_ids: pageIds,
@@ -35,7 +101,7 @@ export async function POST(request) {
         video_url: videoUrl || null,
         first_comment: firstComment || null,
         comment_image_url: commentImageUrl || null,
-        scheduled_at: new Date(formattedScheduledAt).toISOString(),
+        scheduled_at: finalScheduledAt,
         status: 'pending',
       });
 
@@ -43,7 +109,7 @@ export async function POST(request) {
         return NextResponse.json({ error: `Gagal menjadualkan pos: ${insertError.message}` }, { status: 500 });
       }
 
-      return NextResponse.json({ scheduled: true, message: 'Pos berjaya dijadualkan!' }, { status: 200 });
+      return NextResponse.json({ scheduled: true, message: 'Pos berjaya dijadualkan ke dalam sistem!' }, { status: 200 });
     }
 
     // B. Pos serta-merta
