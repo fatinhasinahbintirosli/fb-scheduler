@@ -7,27 +7,47 @@ export async function GET(request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      return NextResponse.json({ error: 'Supabase environment variables are missing.' }, { status: 500 });
+    }
+
     const supabase = createClient(supabaseUrl, supabaseKey);
+    const nowISO = new Date().toISOString();
 
-    const now = new Date().toISOString();
-
-    // 1. Ambil pos pending yang masa <= waktu sekarang
+    // 1. Ambil pos pending yang masa scheduled_at sudah tiba atau lepas
     const { data: postsToPublish, error: fetchError } = await supabase
       .from('scheduled_posts')
       .select('*')
       .eq('status', 'pending')
-      .lte('scheduled_at', now)
+      .lte('scheduled_at', nowISO)
       .limit(5);
 
-    if (fetchError || !postsToPublish || postsToPublish.length === 0) {
+    if (fetchError) {
+      return NextResponse.json({ error: fetchError.message }, { status: 500 });
+    }
+
+    if (!postsToPublish || postsToPublish.length === 0) {
       return NextResponse.json({ message: 'Tiada pos berjadual untuk diterbitkan.' });
     }
 
     for (const item of postsToPublish) {
-      const { data: pages } = await supabase
+      const { data: pages, error: pageError } = await supabase
         .from('pages')
         .select('page_id, page_name, access_token')
         .in('page_id', item.page_ids);
+
+      if (pageError || !pages || pages.length === 0) {
+        // Jika page tidak wujud, tandakan pos sebagai gagal
+        await supabase
+          .from('scheduled_posts')
+          .update({
+            status: 'failed',
+            error_log: 'Page tidak dijumpai atau sudah dipadam daripada database.',
+          })
+          .eq('id', item.id);
+        continue;
+      }
 
       let hasError = false;
       let errorLogs = [];
@@ -75,7 +95,7 @@ export async function GET(request) {
             continue;
           }
 
-          // First Comment jika ada
+          // Proses First Comment jika ada
           if (item.first_comment || item.comment_image_url) {
             await new Promise((resolve) => setTimeout(resolve, item.video_url ? 4000 : 2000));
             const targetCommentId = postData.post_id || postData.id;
@@ -96,6 +116,7 @@ export async function GET(request) {
         }
       }
 
+      // Kemaskini status pos di database selepas selesai
       await supabase
         .from('scheduled_posts')
         .update({
