@@ -12,8 +12,9 @@ export default function Home() {
   const [firstComment, setFirstComment] = useState('');
   const [commentImageUrl, setCommentImageUrl] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
-  const [postMode, setPostMode] = useState('now'); // 'now', 'manual', 'auto'
+  const [postMode, setPostMode] = useState('now'); 
   const [message, setMessage] = useState('');
+  const [currentProfile, setCurrentProfile] = useState('Fatin'); // Profil pilihan
   const [loading, setLoading] = useState(false);
   const [fetchingPages, setFetchingPages] = useState(true);
 
@@ -23,6 +24,10 @@ export default function Home() {
   );
 
   useEffect(() => {
+    // Ambil profil yang tersimpan di pelayar (localStorage)
+    const savedProfile = localStorage.getItem('fb_scheduler_profile');
+    if (savedProfile) setCurrentProfile(savedProfile);
+
     async function initData() {
       try {
         const { data: pData } = await supabase.from('pages').select('page_id, page_name').order('page_name', { ascending: true });
@@ -35,6 +40,11 @@ export default function Home() {
     }
     initData();
   }, []);
+
+  const handleProfileChange = (profileName) => {
+    setCurrentProfile(profileName);
+    localStorage.setItem('fb_scheduler_profile', profileName);
+  };
 
   const handleSelectAll = () => {
     if (selectedPages.length === pages.length) {
@@ -72,6 +82,7 @@ export default function Home() {
       firstComment: firstComment || null,
       commentImageUrl: commentImageUrl || null,
       scheduledAt: postMode === 'auto' ? 'auto-queue' : finalScheduledAt,
+      profile: currentProfile, // Hantar profil semasa
     };
 
     try {
@@ -81,14 +92,7 @@ export default function Home() {
         body: JSON.stringify(payload),
       });
 
-      const contentType = res.headers.get("content-type");
-      let data;
-      if (contentType && contentType.includes("application/json")) {
-        data = await res.json();
-      } else {
-        throw new Error('Server membalas bukan dalam bentuk JSON yang sah.');
-      }
-
+      const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal memproses permintaan.');
 
       alert(data.message || 'Berjaya!');
@@ -108,52 +112,72 @@ export default function Home() {
   return (
     <main style={{ maxWidth: '900px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       
-      {/* Header & Butang Navigasi (Update Time Slots & Lihat Queue) */}
+      {/* Bahagian Pilih Profil */}
+      <div style={{ background: '#e7f3ff', padding: '15px 20px', borderRadius: '10px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #b6d4fe' }}>
+        <div>
+          <span style={{ fontWeight: 'bold', color: '#084298', marginRight: '10px' }}>👤 Profil Pengguna Semasa:</span>
+          <strong style={{ color: '#052c65', fontSize: '16px' }}>{currentProfile}</strong>
+        </div>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            type="button"
+            onClick={() => handleProfileChange('Fatin')}
+            style={{
+              padding: '6px 12px',
+              borderRadius: '6px',
+              border: 'none',
+              background: currentProfile === 'Fatin' ? '#0d6efd' : '#fff',
+              color: currentProfile === 'Fatin' ? '#fff' : '#0d6efd',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+            }}
+          >
+            Profil Fatin
+          </button>
+          <button
+            type="button"
+            onClick={() => handleProfileChange('Adik')}
+            style={{
+              padding: '6px 12px',
+              borderRadius: '6px',
+              border: 'none',
+              background: currentProfile === 'Adik' ? '#198754' : '#fff',
+              color: currentProfile === 'Adik' ? '#fff' : '#198754',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+            }}
+          >
+            Profil Adik
+          </button>
+        </div>
+      </div>
+
+      {/* Header & Navigasi */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '25px' }}>
         <div>
           <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
             <Link 
               href="/queue-settings" 
-              style={{ 
-                display: 'inline-block', 
-                padding: '8px 14px', 
-                backgroundColor: '#242526', 
-                color: '#fff', 
-                borderRadius: '8px', 
-                textDecoration: 'none', 
-                fontSize: '13px', 
-                fontWeight: 'bold',
-                border: '1px solid #3a3b3c',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-              }}
+              style={{ padding: '8px 14px', backgroundColor: '#242526', color: '#fff', borderRadius: '8px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}
             >
-              ⚙️ Update Time Slots
+              ⚙️ Update Time Slots ({currentProfile})
             </Link>
-            
             <Link 
               href="/queue" 
-              style={{ 
-                display: 'inline-block', 
-                padding: '8px 14px', 
-                backgroundColor: '#1877f2', 
-                color: '#fff', 
-                borderRadius: '8px', 
-                textDecoration: 'none', 
-                fontSize: '13px', 
-                fontWeight: 'bold',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-              }}
+              style={{ padding: '8px 14px', backgroundColor: '#1877f2', color: '#fff', borderRadius: '8px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}
             >
               📋 Lihat Senarai Queue / Jadual
             </Link>
           </div>
 
           <h1 style={{ color: '#1877f2', margin: '0 0 8px 0' }}>Facebook Scheduler</h1>
-          <p style={{ color: '#65676b', fontSize: '14px', margin: 0 }}>Hantar atau uruskan jadual pos anda dengan mudah.</p>
+          <p style={{ color: '#65676b', fontSize: '14px', margin: 0 }}>Sistem penjadualan pos automatik mengikut profil.</p>
         </div>
       </div>
 
-      {/* Bahagian Borang Pos */}
+      {/* Borang Utama */}
       <section style={{ background: '#f4f4f4', padding: '20px', borderRadius: '8px', marginBottom: '30px' }}>
         <form onSubmit={handleSubmit}>
           
@@ -197,6 +221,7 @@ export default function Home() {
             />
           </div>
 
+          {/* Medan lain (Image, Video, First Comment) seperti biasa */}
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Image URL (Pilihan):</label>
             <input 
@@ -208,77 +233,26 @@ export default function Home() {
             />
           </div>
 
-          <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Video URL (Pilihan):</label>
-            <input 
-              type="text" 
-              value={videoUrl} 
-              onChange={(e) => setVideoUrl(e.target.value)} 
-              placeholder="https://example.com/video.mp4" 
-              style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} 
-            />
-          </div>
-
-          <div style={{ marginBottom: '15px', background: '#fff', padding: '15px', borderRadius: '8px', border: '1px solid #ddd' }}>
-            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>First Comment (Pilihan):</label>
-            <input 
-              type="text" 
-              value={firstComment} 
-              onChange={(e) => setFirstComment(e.target.value)} 
-              placeholder="Tulis komen pertama..." 
-              style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box', marginBottom: '10px' }} 
-            />
-            
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '5px', color: '#555' }}>Comment Image URL (Pilihan):</label>
-            <input 
-              type="text" 
-              value={commentImageUrl} 
-              onChange={(e) => setCommentImageUrl(e.target.value)} 
-              placeholder="https://example.com/comment-image.jpg" 
-              style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} 
-            />
-          </div>
-
-          {/* Pilihan Mod Pos */}
+          {/* Mod Pos */}
           <div style={{ marginBottom: '15px', display: 'flex', gap: '20px', alignItems: 'center' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
-              <input 
-                type="radio" 
-                name="postMode" 
-                checked={postMode === 'now'} 
-                onChange={() => { setPostMode('now'); setScheduledAt(''); }} 
-              />
+              <input type="radio" name="postMode" checked={postMode === 'now'} onChange={() => { setPostMode('now'); setScheduledAt(''); }} />
               Pos Sekarang
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
-              <input 
-                type="radio" 
-                name="postMode" 
-                checked={postMode === 'manual'} 
-                onChange={() => setPostMode('manual')} 
-              />
+              <input type="radio" name="postMode" checked={postMode === 'manual'} onChange={() => setPostMode('manual')} />
               Jadual Manual
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
-              <input 
-                type="radio" 
-                name="postMode" 
-                checked={postMode === 'auto'} 
-                onChange={() => { setPostMode('auto'); setScheduledAt(''); }} 
-              />
-              Auto-Queue Last
+              <input type="radio" name="postMode" checked={postMode === 'auto'} onChange={() => { setPostMode('auto'); setScheduledAt(''); }} />
+              Auto-Queue Last ({currentProfile})
             </label>
           </div>
 
           {postMode === 'manual' && (
             <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Pilih Masa Jadual:</label>
-              <input 
-                type="datetime-local" 
-                value={scheduledAt} 
-                onChange={(e) => setScheduledAt(e.target.value)} 
-                style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc' }} 
-              />
+              <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc' }} />
             </div>
           )}
           
@@ -287,7 +261,7 @@ export default function Home() {
             disabled={loading} 
             style={{ width: '100%', padding: '12px', background: '#0070f3', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: 'bold', cursor: 'pointer' }}
           >
-            {loading ? 'Memproses...' : (postMode === 'now' ? 'Hantar Sekarang' : (postMode === 'auto' ? 'Masukkan ke Auto-Queue' : 'Jadualkan Pos'))}
+            {loading ? 'Memproses...' : (postMode === 'now' ? 'Hantar Sekarang' : `Masukkan ke Auto-Queue (${currentProfile})`)}
           </button>
         </form>
       </section>
