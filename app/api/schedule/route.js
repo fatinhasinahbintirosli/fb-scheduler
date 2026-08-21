@@ -5,7 +5,6 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request) {
   try {
-    // Pastikan ia menggunakan Service Role Key jika ada supaya mempunyai kebenaran penuh memadam storage
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -162,42 +161,9 @@ export async function POST(request) {
       return NextResponse.json({ error: `Gagal menjadualkan pos: ${insertError.message}` }, { status: 500 });
     }
 
-    // ==========================================
-    // AUTO-DELETE FAIL DARI SUPABASE STORAGE (DILUAR SYARAT)
-    // ==========================================
-    const mediaToCheck = [imageUrl, videoUrl, commentImageUrl];
-    
-    for (const mediaUrl of mediaToCheck) {
-      if (mediaUrl && mediaUrl.includes('supabase.co')) {
-        try {
-          const marker = '/post-media/';
-          const markerIndex = mediaUrl.indexOf(marker);
-          
-          if (markerIndex !== -1) {
-            const filePath = mediaUrl.substring(markerIndex + marker.length);
-            const decodedFilePath = decodeURIComponent(filePath);
-
-            console.log(`Cuba memadam fail dari storage: ${decodedFilePath}`);
-
-            const { data, error: delError } = await supabase.storage
-              .from('post-media')
-              .remove([decodedFilePath]);
-
-            if (delError) {
-              console.error('Ralat Supabase Storage remove:', delError.message);
-            } else {
-              console.log('Berjaya padam fail:', data);
-            }
-          }
-        } catch (delErr) {
-          console.error('Gagal memproses pemadaman fail:', delErr.message);
-        }
-      }
-    }
-
     return NextResponse.json({ 
       success: true, 
-      message: `Pos berjaya diproses (${activeProfile}) dan fail media storan telah dibersihkan!` 
+      message: `Pos berjaya dijadualkan (${activeProfile})!` 
     }, { status: 200 });
 
   } catch (error) {
