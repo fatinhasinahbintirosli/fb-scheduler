@@ -163,16 +163,31 @@ export async function POST(request) {
       // AUTO-DELETE FAIL DARI SUPABASE STORAGE
       // ==========================================
       const mediaToCheck = [imageUrl, videoUrl, commentImageUrl];
+      
       for (const mediaUrl of mediaToCheck) {
-        if (mediaUrl && mediaUrl.includes('supabase.co/storage')) {
+        if (mediaUrl && mediaUrl.includes('supabase.co')) {
           try {
-            const pathParts = mediaUrl.split('/post-media/');
-            if (pathParts.length > 1) {
-              const filePath = pathParts[1];
-              await supabase.storage.from('post-media').remove([filePath]);
+            const marker = '/post-media/';
+            const markerIndex = mediaUrl.indexOf(marker);
+            
+            if (markerIndex !== -1) {
+              const filePath = mediaUrl.substring(markerIndex + marker.length);
+              const decodedFilePath = decodeURIComponent(filePath);
+
+              console.log(`Cuba memadam fail dari storage: ${decodedFilePath}`);
+
+              const { data, error: delError } = await supabase.storage
+                .from('post-media')
+                .remove([decodedFilePath]);
+
+              if (delError) {
+                console.error('Ralat Supabase Storage remove:', delError.message);
+              } else {
+                console.log('Berjaya padam fail:', data);
+              }
             }
           } catch (delErr) {
-            console.error('Gagal memadam fail dari storage:', delErr.message);
+            console.error('Gagal memproses pemadaman fail:', delErr.message);
           }
         }
       }
