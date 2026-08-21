@@ -15,7 +15,7 @@ export async function GET(request) {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const nowISO = new Date().toISOString();
 
-    // 1. Ambil pos pending yang masa scheduled_at sudah tiba atau lepas
+    // 1. Ambil pos pending yang masanya sudah tiba
     const { data: postsToPublish, error: fetchError } = await supabase
       .from('scheduled_posts')
       .select('*')
@@ -32,6 +32,17 @@ export async function GET(request) {
     }
 
     for (const item of postsToPublish) {
+      // PENTING: Tukar status serta-merta kepada 'processing' agar cron lain tidak ambil pos yang sama (elak duplicate 3x)
+      const { error: lockError } = await supabase
+        .from('scheduled_posts')
+        .update({ status: 'processing' })
+        .eq('id', item.id)
+        .eq('status', 'pending'); // Pastikan ia masih pending
+
+      if (lockError) {
+        continue; // Jika pos sudah diambil oleh proses lain, langkau ke pos seterusnya
+      }
+
       const { data: pages, error: pageError } = await supabase
         .from('pages')
         .select('page_id, page_name, access_token')
@@ -117,7 +128,7 @@ export async function GET(request) {
 
       const finalStatus = hasError ? 'failed' : 'published';
 
-      // Kemaskini status pos di database selepas selesai
+      // Kemaskini status akhir pos di database
       await supabase
         .from('scheduled_posts')
         .update({
@@ -128,7 +139,6 @@ export async function GET(request) {
 
       // ==========================================
       // AUTO-DELETE FAIL DARI SUPABASE STORAGE 
-      // (Hanya dijalankan JIKA pos berjaya / published)
       // ==========================================
       if (finalStatus === 'published') {
         const mediaToCheck = [item.image_url, item.video_url, item.comment_image_url];
