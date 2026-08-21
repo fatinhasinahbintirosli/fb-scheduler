@@ -35,7 +35,7 @@ export async function POST(request) {
       let targetScheduledTime;
 
       if (scheduledAt === 'auto-queue') {
-        // Logik Auto-Queue: Cari pos terakhir yang 'pending' untuk dijadikan rujukan
+        // 1. Dapatkan pos 'pending' yang terakhir untuk tahu rujukan masa terakhir
         const { data: lastPosts } = await supabase
           .from('scheduled_posts')
           .select('scheduled_at')
@@ -43,16 +43,59 @@ export async function POST(request) {
           .order('scheduled_at', { ascending: false })
           .limit(1);
 
+        // 2. Dapatkan senarai timeslot aktif daripada table queue_settings
+        const { data: queueSettings } = await supabase
+          .from('queue_settings')
+          .select('*')
+          .eq('is_active', true)
+          .order('time_slot', { ascending: true });
+
         let baseDate = new Date();
         if (lastPosts && lastPosts.length > 0 && lastPosts[0].scheduled_at) {
           const lastDate = new Date(lastPosts[0].scheduled_at);
           if (!isNaN(lastDate.getTime())) {
             baseDate = lastDate;
           }
+        } else {
+          // Jika tiada pos dalam queue, mula dari masa sekarang
+          baseDate = new Date();
         }
 
-        // Tambah 30 minit sebagai anggaran auto-queue ringkas jika tiada pengiraan kompleks
-        baseDate.setMinutes(baseDate.getMinutes() + 30);
+        let nextSlotTimeStr = null;
+
+        if (queueSettings && queueSettings.length > 0) {
+          const currentDayOfWeek = baseDate.getDay(); // 0 = Ahad, 1 = Isnin, dst.
+          const currentTimeStr = baseDate.toTimeString().split(' ')[0]; // Format "HH:MM:SS"
+
+          // Cari slot pada hari yang sama yang masanya lebih lewat daripada masa rujukan
+          let candidate = queueSettings.find(
+            (q) => q.day_of_week === currentDayOfWeek && q.time_slot > currentTimeStr
+          );
+
+          // Jika tiada, cari slot seterusnya pada hari-hari berikutnya
+          if (!candidate) {
+            candidate = queueSettings[0]; // Ambil slot pertama sebagai fallback
+          }
+
+          if (candidate && candidate.time_slot) {
+            nextSlotTimeStr = candidate.time_slot;
+          }
+        }
+
+        if (nextSlotTimeStr) {
+          // Gabungkan tarikh rujukan dengan time_slot dari database (HH:MM:SS)
+          const [hours, minutes, seconds] = nextSlotTimeStr.split(':');
+          baseDate.setHours(parseInt(hours, 10), parseInt(minutes, 10), parseInt(seconds || 0, 10), 0);
+          
+          // Jika masa yang dikira sudah lepas, anjakkan ke hari esok pada slot tersebut
+          if (baseDate <= new Date() && (!lastPosts || lastPosts.length === 0)) {
+            baseDate.setDate(baseDate.getDate() + 1);
+          }
+        } else {
+          // Fallback jika tiada timeslot dijumpai
+          baseDate.setMinutes(baseDate.getMinutes() + 30);
+        }
+
         targetScheduledTime = baseDate.toISOString();
       } else {
         const formattedScheduledAt = scheduledAt.endsWith('Z') || scheduledAt.includes('+') ? scheduledAt : `${scheduledAt}:00+08:00`;
@@ -79,7 +122,7 @@ export async function POST(request) {
         return NextResponse.json({ error: `Gagal menjadualkan pos: ${insertError.message}` }, { status: 500 });
       }
 
-      return NextResponse.json({ scheduled: true, message: 'Pos berjaya dimasukkan ke dalam senarai queue!' }, { status: 200 });
+      return NextResponse.json({ scheduled: true, message: 'Pos berjaya dimasukkan mengikut Auto-Queue timeslot!' }, { status: 200 });
     }
 
     // B. Pos serta-merta
