@@ -9,10 +9,7 @@ export async function POST(request) {
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
-      return NextResponse.json(
-        { error: 'Kunci Supabase Environment Variables belum ditetapkan.' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Kunci Supabase belum ditetapkan.' }, { status: 500 });
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -24,7 +21,8 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Format data JSON tidak sah.' }, { status: 400 });
     }
 
-    const { pageIds, message, imageUrl, videoUrl, firstComment, commentImageUrl, scheduledAt } = body;
+    const { pageIds, message, imageUrl, videoUrl, firstComment, commentImageUrl, scheduledAt, profile } = body;
+    const activeProfile = profile || 'Fatin'; // Default profil jika tiada
 
     if (!pageIds || !Array.isArray(pageIds) || pageIds.length === 0) {
       return NextResponse.json({ error: 'Sila pilih sekurang-kurangnya satu Facebook Page.' }, { status: 400 });
@@ -34,21 +32,22 @@ export async function POST(request) {
       let targetScheduledTime;
 
       if (scheduledAt === 'auto-queue') {
-        // 1. Dapatkan pos 'pending' yang terakhir
+        // 1. Dapatkan pos 'pending' yang terakhir mengikut profil yang sama
         const { data: lastPosts } = await supabase
           .from('scheduled_posts')
           .select('scheduled_at')
           .eq('status', 'pending')
+          .eq('profile', activeProfile)
           .order('scheduled_at', { ascending: false })
           .limit(1);
 
-        // 2. Dapatkan senarai timeslot aktif dari queue_settings
+        // 2. Dapatkan senarai timeslot aktif KHUSUS untuk profil ini dari queue_settings
         const { data: queueSettings } = await supabase
           .from('queue_settings')
           .select('*')
-          .eq('is_active', true);
+          .eq('is_active', true)
+          .eq('profile', activeProfile);
 
-        // Dapatkan masa semasa dalam zon masa Malaysia (UTC+8)
         const nowUTC = new Date();
         const localTimeStr = nowUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
         let baseDate = new Date(localTimeStr);
@@ -107,7 +106,7 @@ export async function POST(request) {
           }
         }
 
-        let targetHours = 15; // default 3 PM
+        let targetHours = 15;
         let targetMinutes = 0;
 
         if (nextSlotTimeStr) {
@@ -127,7 +126,6 @@ export async function POST(request) {
 
         baseDate.setHours(targetHours, targetMinutes, 0, 0);
 
-        // Tukar semula ke format ISO UTC dengan betul (+08:00)
         const year = baseDate.getFullYear();
         const month = String(baseDate.getMonth() + 1).padStart(2, '0');
         const day = String(baseDate.getDate()).padStart(2, '0');
@@ -154,13 +152,14 @@ export async function POST(request) {
         comment_image_url: commentImageUrl || null,
         scheduled_at: targetScheduledTime,
         status: 'pending',
+        profile: activeProfile, // Simpan profil sekali
       });
 
       if (insertError) {
         return NextResponse.json({ error: `Gagal menjadualkan pos: ${insertError.message}` }, { status: 500 });
       }
 
-      return NextResponse.json({ scheduled: true, message: 'Pos berjaya dimasukkan mengikut Auto-Queue timeslot!' }, { status: 200 });
+      return NextResponse.json({ scheduled: true, message: `Pos berjaya dimasukkan mengikut Auto-Queue (${activeProfile})!` }, { status: 200 });
     }
 
     return NextResponse.json({ success: true }, { status: 200 });
