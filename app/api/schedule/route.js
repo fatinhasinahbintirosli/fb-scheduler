@@ -35,7 +35,7 @@ export async function POST(request) {
       let targetScheduledTime;
 
       if (scheduledAt === 'auto-queue') {
-        // 1. Dapatkan pos 'pending' yang terakhir untuk tahu rujukan masa terakhir
+        // 1. Dapatkan pos 'pending' yang terakhir untuk tahu rujukan masa pos sebelum ini
         const { data: lastPosts } = await supabase
           .from('scheduled_posts')
           .select('scheduled_at')
@@ -52,7 +52,7 @@ export async function POST(request) {
 
         let baseDate = new Date();
         
-        // Jika ada pos pending terakhir, guna masa pos tersebut sebagai rujukan utama untuk queue seterusnya
+        // WAJIB: Jika ada pos pending terakhir, guna masa pos tersebut sebagai rujukan utama
         if (lastPosts && lastPosts.length > 0 && lastPosts[0].scheduled_at) {
           const lastDate = new Date(lastPosts[0].scheduled_at);
           if (!isNaN(lastDate.getTime())) {
@@ -65,18 +65,18 @@ export async function POST(request) {
         if (queueSettings && queueSettings.length > 0) {
           const currentDayOfWeek = baseDate.getDay(); // 0 = Ahad, 1 = Isnin, dst.
           
-          // Format masa rujukan dalam "HH:MM:SS"
+          // Ambil masa (HH:MM:SS) daripada pos terakhir tadi
           const hoursStr = String(baseDate.getHours()).padStart(2, '0');
           const minutesStr = String(baseDate.getMinutes()).padStart(2, '0');
           const secondsStr = String(baseDate.getSeconds()).padStart(2, '0');
-          const currentTimeStr = `${hoursStr}:${minutesStr}:${secondsStr}`;
+          const lastTimeStr = `${hoursStr}:${minutesStr}:${secondsStr}`;
 
-          // Cari slot pada hari yang sama yang masanya LEBIH LEWAT daripada masa rujukan terakhir
+          // Cari slot pada hari yang sama yang masanya LEBIH LEWAT daripada masa pos terakhir
           let candidate = queueSettings.find(
-            (q) => q.day_of_week === currentDayOfWeek && q.time_slot > currentTimeStr
+            (q) => q.day_of_week === currentDayOfWeek && q.time_slot > lastTimeStr
           );
 
-          // Jika tiada slot lewat pada hari tersebut, ambil slot pertama pada hari esok
+          // Jika tiada slot lewat pada hari tersebut, anjak ke hari esok dan ambil slot pertama
           if (!candidate) {
             baseDate.setDate(baseDate.getDate() + 1);
             const nextDayOfWeek = baseDate.getDay();
