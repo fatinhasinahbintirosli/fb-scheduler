@@ -16,7 +16,15 @@ export async function POST(request) {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
-    const body = await request.json();
+    
+    // Cuba parse body dengan selamat
+    let body;
+    try {
+      body = await request.json();
+    } catch (err) {
+      return NextResponse.json({ error: 'Format data JSON tidak sah.' }, { status: 400 });
+    }
+
     const { pageIds, message, imageUrl, videoUrl, firstComment, commentImageUrl, scheduledAt } = body;
 
     if (!pageIds || !Array.isArray(pageIds) || pageIds.length === 0) {
@@ -27,7 +35,6 @@ export async function POST(request) {
     if (scheduledAt) {
       const formattedScheduledAt = scheduledAt.endsWith('Z') || scheduledAt.includes('+') ? scheduledAt : `${scheduledAt}:00+08:00`;
 
-      // DIBUANG: 'post_mode' kerana ia tiada dalam skema Supabase anda
       const { error: insertError } = await supabase.from('scheduled_posts').insert({
         page_ids: pageIds,
         message: message || '',
@@ -40,19 +47,21 @@ export async function POST(request) {
       });
 
       if (insertError) {
+        console.error('Supabase Insert Error:', insertError);
         return NextResponse.json({ error: `Gagal menjadualkan pos: ${insertError.message}` }, { status: 500 });
       }
 
       return NextResponse.json({ scheduled: true, message: 'Pos berjaya dijadualkan!' }, { status: 200 });
     }
 
-    // B. Pos serta-merta (Logik asal anda dikekalkan)
+    // B. Pos serta-merta
     const { data: pages, error: dbError } = await supabase
       .from('pages')
       .select('page_id, page_name, access_token')
       .in('page_id', pageIds);
 
     if (dbError || !pages || pages.length === 0) {
+      console.error('Supabase DB Error / Pages not found:', dbError);
       return NextResponse.json({ error: 'Gagal mendapatkan data Page daripada database.' }, { status: 500 });
     }
 
@@ -104,7 +113,6 @@ export async function POST(request) {
           continue;
         }
 
-        // Komen (Logik asal dikekalkan)
         let commentSuccess = false;
         let commentError = null;
 
@@ -149,6 +157,7 @@ export async function POST(request) {
 
     return NextResponse.json({ results }, { status: 200 });
   } catch (error) {
+    console.error('CRITICAL API ERROR:', error);
     return NextResponse.json({ error: error.message || 'Ralat dalaman server.' }, { status: 500 });
   }
 }
