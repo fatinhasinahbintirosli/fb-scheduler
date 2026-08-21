@@ -38,7 +38,6 @@ export async function GET(request) {
         .in('page_id', item.page_ids);
 
       if (pageError || !pages || pages.length === 0) {
-        // Jika page tidak wujud, tandakan pos sebagai gagal
         await supabase
           .from('scheduled_posts')
           .update({
@@ -116,14 +115,52 @@ export async function GET(request) {
         }
       }
 
+      const finalStatus = hasError ? 'failed' : 'published';
+
       // Kemaskini status pos di database selepas selesai
       await supabase
         .from('scheduled_posts')
         .update({
-          status: hasError ? 'failed' : 'published',
+          status: finalStatus,
           error_log: errorLogs.length > 0 ? errorLogs.join(', ') : null,
         })
         .eq('id', item.id);
+
+      // ==========================================
+      // AUTO-DELETE FAIL DARI SUPABASE STORAGE 
+      // (Hanya dijalankan JIKA pos berjaya / published)
+      // ==========================================
+      if (finalStatus === 'published') {
+        const mediaToCheck = [item.image_url, item.video_url, item.comment_image_url];
+        
+        for (const mediaUrl of mediaToCheck) {
+          if (mediaUrl && mediaUrl.includes('supabase.co')) {
+            try {
+              const marker = '/post-media/';
+              const markerIndex = mediaUrl.indexOf(marker);
+              
+              if (markerIndex !== -1) {
+                const filePath = mediaUrl.substring(markerIndex + marker.length);
+                const decodedFilePath = decodeURIComponent(filePath);
+
+                console.log(`Cuba memadam fail dari storage: ${decodedFilePath}`);
+
+                const { data, error: delError } = await supabase.storage
+                  .from('post-media')
+                  .remove([decodedFilePath]);
+
+                if (delError) {
+                  console.error('Ralat Supabase Storage remove:', delError.message);
+                } else {
+                  console.log('Berjaya padam fail:', data);
+                }
+              }
+            } catch (delErr) {
+              console.error('Gagal memproses pemadaman fail:', delErr.message);
+            }
+          }
+        }
+      }
     }
 
     return NextResponse.json({ message: 'Cron job selesai diproses.' });
