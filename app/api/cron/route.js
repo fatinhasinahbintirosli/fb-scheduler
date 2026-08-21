@@ -15,7 +15,6 @@ export async function GET(request) {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const nowISO = new Date().toISOString();
 
-    // 1. Ambil pos pending yang masanya sudah tiba
     const { data: postsToPublish, error: fetchError } = await supabase
       .from('scheduled_posts')
       .select('*')
@@ -32,15 +31,14 @@ export async function GET(request) {
     }
 
     for (const item of postsToPublish) {
-      // PENTING: Tukar status serta-merta kepada 'processing' agar cron lain tidak ambil pos yang sama (elak duplicate 3x)
       const { error: lockError } = await supabase
         .from('scheduled_posts')
         .update({ status: 'processing' })
         .eq('id', item.id)
-        .eq('status', 'pending'); // Pastikan ia masih pending
+        .eq('status', 'pending');
 
       if (lockError) {
-        continue; // Jika pos sudah diambil oleh proses lain, langkau ke pos seterusnya
+        continue;
       }
 
       const { data: pages, error: pageError } = await supabase
@@ -59,7 +57,7 @@ export async function GET(request) {
         continue;
       }
 
-      let hasError = false;
+      let isMainPostSuccessful = false;
       let errorLogs = [];
 
       for (const page of pages) {
@@ -100,10 +98,12 @@ export async function GET(request) {
           const postData = await postRes.json();
 
           if (!postRes.ok || postData.error) {
-            hasError = true;
             errorLogs.push(`${page.page_name}: ${postData.error?.message || 'Gagal pos'}`);
             continue;
           }
+
+          // Jika sampai sini, bermakna pos utama BERJAYA!
+          isMainPostSuccessful = true;
 
           // Proses First Comment jika ada
           if (item.first_comment || item.comment_image_url) {
@@ -114,21 +114,24 @@ export async function GET(request) {
             if (item.first_comment) commentPayload.message = item.first_comment;
             if (item.comment_image_url) commentPayload.attachment_url = item.comment_image_url;
 
-            await fetch(`https://graph.facebook.com/v26.0/${targetCommentId}/comments`, {
+            const commentRes = await fetch(`https://graph.facebook.com/v26.0/${targetCommentId}/comments`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(commentPayload),
             });
+            const commentData = await commentRes.json();
+            if (!commentRes.ok || commentData.error) {
+              errorLogs.push(`${page.page_name} (Komen): ${commentData.error?.message || 'Gagal hantar komen'}`);
+            }
           }
         } catch (err) {
-          hasError = true;
           errorLogs.push(`${page.page_name}: ${err.message}`);
         }
       }
 
-      const finalStatus = hasError ? 'failed' : 'published';
+      // Asalkan pos utama berjaya naik ke Facebook, status dianggap 'published'
+      const finalStatus = isMainPostSuccessful ? 'published' : 'failed';
 
-      // Kemaskini status akhir pos di database
       await supabase
         .from('scheduled_posts')
         .update({
