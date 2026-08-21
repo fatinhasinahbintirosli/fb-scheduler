@@ -7,14 +7,13 @@ import Link from 'next/link';
 export default function Home() {
   const [pages, setPages] = useState([]);
   const [selectedPages, setSelectedPages] = useState([]);
-  const [message, setMessage] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   const [firstComment, setFirstComment] = useState('');
   const [commentImageUrl, setCommentImageUrl] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
   const [postMode, setPostMode] = useState('now'); // 'now', 'manual', 'auto'
-  const [scheduledPosts, setScheduledPosts] = useState([]);
+  const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [fetchingPages, setFetchingPages] = useState(true);
 
@@ -27,10 +26,7 @@ export default function Home() {
     async function initData() {
       try {
         const { data: pData } = await supabase.from('pages').select('page_id, page_name').order('page_name', { ascending: true });
-        const { data: sData } = await supabase.from('scheduled_posts').select('*').order('created_at', { ascending: false });
-        
         setPages(pData || []);
-        setScheduledPosts(sData || []);
       } catch (err) {
         console.error('Ralat memuatkan data:', err);
       } finally {
@@ -53,26 +49,6 @@ export default function Home() {
       setSelectedPages(selectedPages.filter((id) => id !== pageId));
     } else {
       setSelectedPages([...selectedPages, pageId]);
-    }
-  };
-
-  // Fungsi untuk memadam pos / queue
-  const handleDeleteQueue = async (id) => {
-    if (!confirm('Adakah anda pasti mahu memadam pos/queue ini?')) return;
-
-    try {
-      const res = await fetch(`/api/schedule?id=${id}`, {
-        method: 'DELETE',
-      });
-      const data = await res.json();
-
-      if (!res.ok) throw new Error(data.error || 'Gagal memadam pos.');
-
-      alert('Berjaya dipadam!');
-      // Kemaskini senarai pos di skrin
-      setScheduledPosts((prev) => prev.filter((p) => p.id !== id));
-    } catch (err) {
-      alert(`Ralat: ${err.message}`);
     }
   };
 
@@ -122,9 +98,6 @@ export default function Home() {
       setFirstComment('');
       setCommentImageUrl('');
       setScheduledAt('');
-
-      const { data: sData } = await supabase.from('scheduled_posts').select('*').order('created_at', { ascending: false });
-      setScheduledPosts(sData || []);
     } catch (err) {
       alert(`Ralat: ${err.message}`);
     } finally {
@@ -135,27 +108,46 @@ export default function Home() {
   return (
     <main style={{ maxWidth: '900px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       
-      {/* Header & Link ke Tetapan Timeslot */}
+      {/* Header & Butang Navigasi (Update Time Slots & Lihat Queue) */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '25px' }}>
         <div>
-          <Link 
-            href="/queue-settings" 
-            style={{ 
-              display: 'inline-block', 
-              padding: '8px 14px', 
-              backgroundColor: '#242526', 
-              color: '#fff', 
-              borderRadius: '8px', 
-              textDecoration: 'none', 
-              fontSize: '13px', 
-              fontWeight: 'bold',
-              border: '1px solid #3a3b3c',
-              marginBottom: '12px',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-            }}
-          >
-            ⚙️ Update Time Slots
-          </Link>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
+            <Link 
+              href="/queue-settings" 
+              style={{ 
+                display: 'inline-block', 
+                padding: '8px 14px', 
+                backgroundColor: '#242526', 
+                color: '#fff', 
+                borderRadius: '8px', 
+                textDecoration: 'none', 
+                fontSize: '13px', 
+                fontWeight: 'bold',
+                border: '1px solid #3a3b3c',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+              }}
+            >
+              ⚙️ Update Time Slots
+            </Link>
+            
+            <Link 
+              href="/queue" 
+              style={{ 
+                display: 'inline-block', 
+                padding: '8px 14px', 
+                backgroundColor: '#1877f2', 
+                color: '#fff', 
+                borderRadius: '8px', 
+                textDecoration: 'none', 
+                fontSize: '13px', 
+                fontWeight: 'bold',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+              }}
+            >
+              📋 Lihat Senarai Queue / Jadual
+            </Link>
+          </div>
+
           <h1 style={{ color: '#1877f2', margin: '0 0 8px 0' }}>Facebook Scheduler</h1>
           <p style={{ color: '#65676b', fontSize: '14px', margin: 0 }}>Hantar atau uruskan jadual pos anda dengan mudah.</p>
         </div>
@@ -298,63 +290,6 @@ export default function Home() {
             {loading ? 'Memproses...' : (postMode === 'now' ? 'Hantar Sekarang' : (postMode === 'auto' ? 'Masukkan ke Auto-Queue' : 'Jadualkan Pos'))}
           </button>
         </form>
-      </section>
-
-      {/* Jadual Pos */}
-      <section>
-        <h2>Senarai Pos Dijadualkan / Lepas</h2>
-        <div style={{ overflowX: 'auto', marginTop: '10px' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-            <thead>
-              <tr style={{ background: '#eee', textAlign: 'left' }}>
-                <th style={{ padding: '10px' }}>Mesej</th>
-                <th style={{ padding: '10px' }}>Masa</th>
-                <th style={{ padding: '10px' }}>Status</th>
-                <th style={{ padding: '10px', textAlign: 'center' }}>Tindakan</th>
-              </tr>
-            </thead>
-            <tbody>
-              {scheduledPosts.length === 0 ? (
-                <tr><td colSpan="4" style={{ padding: '15px', textAlign: 'center', color: '#777' }}>Tiada rekod pos.</td></tr>
-              ) : (
-                scheduledPosts.map(p => (
-                  <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: '10px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.message || '(Tiada teks)'}</td>
-                    <td style={{ padding: '10px' }}>{p.scheduled_at ? new Date(p.scheduled_at).toLocaleString() : '-'}</td>
-                    <td style={{ padding: '10px' }}>
-                      <span style={{ 
-                        padding: '3px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold',
-                        backgroundColor: p.status === 'published' ? '#d4edda' : '#fff3cd',
-                        color: p.status === 'published' ? '#155724' : '#856404'
-                      }}>
-                        {p.status ? p.status.toUpperCase() : 'PENDING'}
-                      </span>
-                    </td>
-                    <td style={{ padding: '10px', textAlign: 'center' }}>
-                      {p.status === 'pending' && (
-                        <button
-                          onClick={() => handleDeleteQueue(p.id)}
-                          style={{
-                            background: '#dc3545',
-                            color: '#fff',
-                            border: 'none',
-                            padding: '5px 10px',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '12px',
-                            fontWeight: 'bold'
-                          }}
-                        >
-                          Padam
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
       </section>
     </main>
   );
