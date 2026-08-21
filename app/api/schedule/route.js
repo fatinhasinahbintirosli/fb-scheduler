@@ -17,7 +17,6 @@ export async function POST(request) {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     
-    // Cuba parse body dengan selamat
     let body;
     try {
       body = await request.json();
@@ -31,9 +30,38 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Sila pilih sekurang-kurangnya satu Facebook Page.' }, { status: 400 });
     }
 
-    // A. Simpan ke database jika pos dijadualkan
+    // A. Simpan ke database jika pos dijadualkan ATAU Auto-Queue
     if (scheduledAt) {
-      const formattedScheduledAt = scheduledAt.endsWith('Z') || scheduledAt.includes('+') ? scheduledAt : `${scheduledAt}:00+08:00`;
+      let targetScheduledTime;
+
+      if (scheduledAt === 'auto-queue') {
+        // Logik Auto-Queue: Cari pos terakhir yang 'pending' untuk dijadikan rujukan
+        const { data: lastPosts } = await supabase
+          .from('scheduled_posts')
+          .select('scheduled_at')
+          .eq('status', 'pending')
+          .order('scheduled_at', { ascending: false })
+          .limit(1);
+
+        let baseDate = new Date();
+        if (lastPosts && lastPosts.length > 0 && lastPosts[0].scheduled_at) {
+          const lastDate = new Date(lastPosts[0].scheduled_at);
+          if (!isNaN(lastDate.getTime())) {
+            baseDate = lastDate;
+          }
+        }
+
+        // Tambah 30 minit sebagai anggaran auto-queue ringkas jika tiada pengiraan kompleks
+        baseDate.setMinutes(baseDate.getMinutes() + 30);
+        targetScheduledTime = baseDate.toISOString();
+      } else {
+        const formattedScheduledAt = scheduledAt.endsWith('Z') || scheduledAt.includes('+') ? scheduledAt : `${scheduledAt}:00+08:00`;
+        const parsedDate = new Date(formattedScheduledAt);
+        if (isNaN(parsedDate.getTime())) {
+          return NextResponse.json({ error: 'Format masa jadual tidak sah (Invalid time value).' }, { status: 400 });
+        }
+        targetScheduledTime = parsedDate.toISOString();
+      }
 
       const { error: insertError } = await supabase.from('scheduled_posts').insert({
         page_ids: pageIds,
@@ -42,7 +70,7 @@ export async function POST(request) {
         video_url: videoUrl || null,
         first_comment: firstComment || null,
         comment_image_url: commentImageUrl || null,
-        scheduled_at: new Date(formattedScheduledAt).toISOString(),
+        scheduled_at: targetScheduledTime,
         status: 'pending',
       });
 
@@ -51,7 +79,7 @@ export async function POST(request) {
         return NextResponse.json({ error: `Gagal menjadualkan pos: ${insertError.message}` }, { status: 500 });
       }
 
-      return NextResponse.json({ scheduled: true, message: 'Pos berjaya dijadualkan!' }, { status: 200 });
+      return NextResponse.json({ scheduled: true, message: 'Pos berjaya dimasukkan ke dalam senarai queue!' }, { status: 200 });
     }
 
     // B. Pos serta-merta
