@@ -15,22 +15,35 @@ const DAYS = [
 ];
 
 export default function QueueSettingsPage() {
+  const [currentProfile, setCurrentProfile] = useState('Fatin');
   const [rows, setRows] = useState([]); // Format: [{ time: '07:41', days: [1, 3, 5] }]
   const [loading, setLoading] = useState(false);
 
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
   useEffect(() => {
+    const savedProfile = localStorage.getItem('fb_scheduler_profile');
+    if (savedProfile) setCurrentProfile(savedProfile);
+  }, []);
+
+  useEffect(() => {
     async function fetchSettings() {
-      const { data, error } = await supabase.from('queue_settings').select('*');
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('queue_settings')
+        .select('*')
+        .eq('profile', currentProfile);
+
       if (error) {
         console.error('Ralat memuatkan queue:', error);
+        setLoading(false);
         return;
       }
 
-      // Kumpulkan data mengikut masa (time_slot)
+      // Kumpulkan data mengikut masa (time_slot) khusus untuk profil semasa
       const grouped = {};
       (data || []).forEach(item => {
+        if (!item.time_slot) return;
         const timeStr = item.time_slot.substring(0, 5); // 'HH:MM'
         if (!grouped[timeStr]) {
           grouped[timeStr] = [];
@@ -43,10 +56,16 @@ export default function QueueSettingsPage() {
         days: grouped[time]
       }));
 
-      setRows(formattedRows.length > 0 ? formattedRows : [{ time: '08:00', days: [] }]);
+      setRows(formattedRows);
+      setLoading(false);
     }
     fetchSettings();
-  }, []);
+  }, [currentProfile]);
+
+  const handleProfileChange = (profileName) => {
+    setCurrentProfile(profileName);
+    localStorage.setItem('fb_scheduler_profile', profileName);
+  };
 
   const addRow = () => {
     setRows([...rows, { time: '12:00', days: [] }]);
@@ -80,27 +99,33 @@ export default function QueueSettingsPage() {
   const saveSettings = async () => {
     setLoading(true);
     try {
-      // 1. Padam semua data lama
-      await supabase.from('queue_settings').delete().neq('id', 0);
+      // 1. Padam hanya data queue_settings yang sepadan dengan profil semasa
+      const { error: deleteError } = await supabase
+        .from('queue_settings')
+        .delete()
+        .eq('profile', currentProfile);
 
-      // 2. Format semula data untuk dimasukkan ke database
+      if (deleteError) throw deleteError;
+
+      // 2. Format semula data untuk dimasukkan ke database berserta nama profil
       const insertData = [];
       rows.forEach(row => {
         row.days.forEach(day => {
           insertData.push({
             day_of_week: day,
             time_slot: `${row.time}:00`,
-            is_active: true
+            is_active: true,
+            profile: currentProfile
           });
         });
       });
 
       if (insertData.length > 0) {
-        const { error } = await supabase.from('queue_settings').insert(insertData);
-        if (error) throw error;
+        const { error: insertError } = await supabase.from('queue_settings').insert(insertData);
+        if (insertError) throw insertError;
       }
 
-      alert('Tetapan Timeslot berjaya disimpan!');
+      alert(`Tetapan Timeslot berjaya disimpan untuk profil ${currentProfile}!`);
     } catch (err) {
       alert(`Ralat menyimpan: ${err.message}`);
     } finally {
@@ -110,13 +135,53 @@ export default function QueueSettingsPage() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#121212', color: '#fff', padding: '30px', fontFamily: 'sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
+      
+      {/* Bahagian Navbar & Tukar Profil */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
         <div>
           <Link href="/" style={{ color: '#1877f2', textDecoration: 'none', fontSize: '14px', display: 'inline-block', marginBottom: '10px' }}>
             ← Kembali ke Halaman Utama
           </Link>
-          <h1 style={{ fontSize: '20px', fontWeight: 'bold' }}>Create Timeslot</h1>
+          <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>Create Timeslot ({currentProfile})</h1>
         </div>
+
+        {/* Butang Tukar Profil */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <span style={{ fontSize: '13px', color: '#a1a1aa' }}>Profil:</span>
+          <button
+            type="button"
+            onClick={() => handleProfileChange('Fatin')}
+            style={{
+              padding: '6px 14px',
+              borderRadius: '6px',
+              border: 'none',
+              background: currentProfile === 'Fatin' ? '#0d6efd' : '#27272a',
+              color: '#fff',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              fontSize: '13px'
+            }}
+          >
+            Fatin
+          </button>
+          <button
+            type="button"
+            onClick={() => handleProfileChange('Adik')}
+            style={{
+              padding: '6px 14px',
+              borderRadius: '6px',
+              border: 'none',
+              background: currentProfile === 'Adik' ? '#198754' : '#27272a',
+              color: '#fff',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              fontSize: '13px'
+            }}
+          >
+            Adik
+          </button>
+        </div>
+
         <div style={{ display: 'flex', gap: '12px' }}>
           <button onClick={clearAll} style={{ background: '#222', color: '#fff', border: '1px solid #444', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer' }}>Clear all</button>
           <button onClick={addRow} style={{ background: '#222', color: '#fff', border: '1px solid #444', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer' }}>+ Add Timeslot</button>
@@ -136,9 +201,13 @@ export default function QueueSettingsPage() {
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {loading ? (
               <tr>
-                <td colSpan="9" style={{ padding: '30px', color: '#71717a' }}>Tiada timeslot. Sila klik &quot;+ Add Timeslot&quot; di atas.</td>
+                <td colSpan="9" style={{ padding: '30px', color: '#71717a' }}>Memuatkan timeslot untuk {currentProfile}...</td>
+              </tr>
+            ) : rows.length === 0 ? (
+              <tr>
+                <td colSpan="9" style={{ padding: '30px', color: '#71717a' }}>Tiada timeslot untuk {currentProfile}. Sila klik &quot;+ Add Timeslot&quot; di atas.</td>
               </tr>
             ) : (
               rows.map((row, rowIndex) => (
