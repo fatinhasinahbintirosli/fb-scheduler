@@ -3,11 +3,10 @@ import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-// Fungsi POST untuk buat pos / auto-queue
 export async function POST(request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json(
@@ -35,6 +34,7 @@ export async function POST(request) {
       let targetScheduledTime;
 
       if (scheduledAt === 'auto-queue') {
+        // 1. Dapatkan pos 'pending' yang terakhir
         const { data: lastPosts } = await supabase
           .from('scheduled_posts')
           .select('scheduled_at')
@@ -42,11 +42,11 @@ export async function POST(request) {
           .order('scheduled_at', { ascending: false })
           .limit(1);
 
+        // 2. Dapatkan senarai timeslot aktif dari queue_settings
         const { data: queueSettings } = await supabase
           .from('queue_settings')
           .select('*')
-          .eq('is_active', true)
-          .order('time_slot', { ascending: true });
+          .eq('is_active', true);
 
         let baseDate = new Date();
         
@@ -62,19 +62,44 @@ export async function POST(request) {
         if (queueSettings && queueSettings.length > 0) {
           const currentDayOfWeek = baseDate.getDay();
           
-          const hoursStr = String(baseDate.getHours()).padStart(2, '0');
-          const minutesStr = String(baseDate.getMinutes()).padStart(2, '0');
-          const secondsStr = String(baseDate.getSeconds()).padStart(2, '0');
-          const lastTimeStr = `${hoursStr}:${minutesStr}:${secondsStr}`;
+          // Tukar semua slot kepada minit dari tengah malam untuk perbandingan tepat (elak masalah 2:30 PM vs 03:00 PM)
+          const parseTimeToMinutes = (timeStr) => {
+            if (!timeStr) return 0;
+            // Jika format ada AM/PM (contoh: "02:30 PM")
+            if (timeStr.includes('M')) {
+              const [timePart, modifier] = timeStr.split(' ');
+              let [hours, minutes] = timePart.split(':').map(Number);
+              if (modifier === 'PM' && hours < 12) hours += 12;
+              if (modifier === 'AM' && hours === 12) hours = 0;
+              return hours * 60 + minutes;
+            }
+            // Format 24 jam ("14:30:00")
+            const parts = timeStr.split(':').map(Number);
+            return parts[0] * 60 + (parts[1] || 0);
+          };
 
-          let candidate = queueSettings.find(
-            (q) => q.day_of_week === currentDayOfWeek && q.time_slot > lastTimeStr
-          );
+          const baseMinutes = baseDate.getHours() * 60 + baseDate.getMinutes();
 
+          // Tapis slot untuk hari yang sama yang masanya LEBIH LEWAT daripada pos terakhir
+          const todaySlots = queueSettings
+            .filter((q) => q.day_of_week === currentDayOfWeek)
+            .map((q) => ({ ...q, totalMinutes: parseTimeToMinutes(q.time_slot) }))
+            .sort((a, b) => a.totalMinutes - b.totalMinutes);
+
+          let candidate = todaySlots.find((q) => q.totalMinutes > baseMinutes);
+
+          // Jika tiada slot lewat hari ini, ambil slot pertama hari esok
           if (!candidate) {
             baseDate.setDate(baseDate.getDate() + 1);
+            baseDate.setHours(0, 0, 0, 0);
             const nextDayOfWeek = baseDate.getDay();
-            candidate = queueSettings.find((q) => q.day_of_week === nextDayOfWeek) || queueSettings[0];
+            
+            const tomorrowSlots = queueSettings
+              .filter((q) => q.day_of_week === nextDayOfWeek)
+              .map((q) => ({ ...q, totalMinutes: parseTimeToMinutes(q.time_slot) }))
+              .sort((a, b) => a.totalMinutes - b.totalMinutes);
+
+            candidate = tomorrowSlots[0] || queueSettings[0];
           }
 
           if (candidate && candidate.time_slot) {
@@ -83,8 +108,17 @@ export async function POST(request) {
         }
 
         if (nextSlotTimeStr) {
-          const [hours, minutes, seconds] = nextSlotTimeStr.split(':');
-          baseDate.setHours(parseInt(hours, 10), parseInt(minutes, 10), parseInt(seconds || 0, 10), 0);
+          // Masukkan masa ke baseDate
+          if (nextSlotTimeStr.includes('M')) {
+            const [timePart, modifier] = nextSlotTimeStr.split(' ');
+            let [hours, minutes] = timePart.split(':').map(Number);
+            if (modifier === 'PM' && hours < 12) hours += 12;
+            if (modifier === 'AM' && hours === 12) hours = 0;
+            baseDate.setHours(hours, minutes, 0, 0);
+          } else {
+            const [hours, minutes, seconds] = nextSlotTimeStr.split(':');
+            baseDate.setHours(parseInt(hours, 10), parseInt(minutes, 10), parseInt(seconds || 0, 10), 0);
+          }
         } else {
           baseDate.setMinutes(baseDate.getMinutes() + 30);
         }
@@ -94,7 +128,7 @@ export async function POST(request) {
         const formattedScheduledAt = scheduledAt.endsWith('Z') || scheduledAt.includes('+') ? scheduledAt : `${scheduledAt}:00+08:00`;
         const parsedDate = new Date(formattedScheduledAt);
         if (isNaN(parsedDate.getTime())) {
-          return NextResponse.json({ error: 'Format masa jadual tidak sah (Invalid time value).' }, { status: 400 });
+          return NextResponse.json({ error: 'Format masa jadual tidak sah.' }, { status: 400 });
         }
         targetScheduledTime = parsedDate.toISOString();
       }
@@ -111,41 +145,32 @@ export async function POST(request) {
       });
 
       if (insertError) {
-        console.error('Supabase Insert Error:', insertError);
         return NextResponse.json({ error: `Gagal menjadualkan pos: ${insertError.message}` }, { status: 500 });
       }
 
       return NextResponse.json({ scheduled: true, message: 'Pos berjaya dimasukkan mengikut Auto-Queue timeslot!' }, { status: 200 });
     }
 
-    // Pos serta-merta (kod asal dikekalkan)
+    // Pos serta-merta
     const { data: pages, error: dbError } = await supabase
       .from('pages')
       .select('page_id, page_name, access_token')
       .in('page_id', pageIds);
 
     if (dbError || !pages || pages.length === 0) {
-      return NextResponse.json({ error: 'Gagal mendapatkan data Page daripada database.' }, { status: 500 });
+      return NextResponse.json({ error: 'Gagal mendapatkan data Page.' }, { status: 500 });
     }
 
-    const results = [];
-    for (const page of pages) {
-      // (Logik pos serta-merta anda yang sedia ada)
-      results.push({ page: page.page_name, success: true });
-    }
-
-    return NextResponse.json({ results }, { status: 200 });
+    return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {
-    console.error('CRITICAL API ERROR:', error);
     return NextResponse.json({ error: error.message || 'Ralat dalaman server.' }, { status: 500 });
   }
 }
 
-// Fungsi DELETE untuk memadam scheduled post / queue berdasarkan ID
 export async function DELETE(request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json({ error: 'Kunci Supabase belum ditetapkan.' }, { status: 500 });
