@@ -48,14 +48,14 @@ export default function Home() {
     setSelectedPages(selectedPages.includes(pageId) ? selectedPages.filter(id => id !== pageId) : [...selectedPages, pageId]);
   };
 
-  // Fungsi untuk memuat naik fail ke Supabase Storage
+  // Fungsi untuk memuat naik fail ke Supabase Storage (telah dibetulkan ralat sintaks)
   const handleFileUpload = async (e, setUrlState) => {
     const file = e.target.files[0];
     if (!file) return;
 
     setFileUploading(true);
     const fileExt = file.name.split('.').pop();
-    const fileName = `${Date.now()}_${Math.random().toString(36.substring(2))}.${fileExt}`;
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
     
     // Pastikan anda sudah buat bucket bernama 'post-media' di Supabase Storage
     const { error } = await supabase.storage
@@ -77,7 +77,6 @@ export default function Home() {
 
     setLoading(true);
     
-    // Auto tentukan sama ada imageUrl ialah video atau gambar berdasarkan format/ekstensi
     let finalImageUrl = imageUrl || null;
     let finalVideoUrl = null;
 
