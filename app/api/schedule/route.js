@@ -51,30 +51,36 @@ export async function POST(request) {
           .order('time_slot', { ascending: true });
 
         let baseDate = new Date();
+        
+        // Jika ada pos pending terakhir, guna masa pos tersebut sebagai rujukan utama untuk queue seterusnya
         if (lastPosts && lastPosts.length > 0 && lastPosts[0].scheduled_at) {
           const lastDate = new Date(lastPosts[0].scheduled_at);
           if (!isNaN(lastDate.getTime())) {
             baseDate = lastDate;
           }
-        } else {
-          // Jika tiada pos dalam queue, mula dari masa sekarang
-          baseDate = new Date();
         }
 
         let nextSlotTimeStr = null;
 
         if (queueSettings && queueSettings.length > 0) {
           const currentDayOfWeek = baseDate.getDay(); // 0 = Ahad, 1 = Isnin, dst.
-          const currentTimeStr = baseDate.toTimeString().split(' ')[0]; // Format "HH:MM:SS"
+          
+          // Format masa rujukan dalam "HH:MM:SS"
+          const hoursStr = String(baseDate.getHours()).padStart(2, '0');
+          const minutesStr = String(baseDate.getMinutes()).padStart(2, '0');
+          const secondsStr = String(baseDate.getSeconds()).padStart(2, '0');
+          const currentTimeStr = `${hoursStr}:${minutesStr}:${secondsStr}`;
 
-          // Cari slot pada hari yang sama yang masanya lebih lewat daripada masa rujukan
+          // Cari slot pada hari yang sama yang masanya LEBIH LEWAT daripada masa rujukan terakhir
           let candidate = queueSettings.find(
             (q) => q.day_of_week === currentDayOfWeek && q.time_slot > currentTimeStr
           );
 
-          // Jika tiada, cari slot seterusnya pada hari-hari berikutnya
+          // Jika tiada slot lewat pada hari tersebut, ambil slot pertama pada hari esok
           if (!candidate) {
-            candidate = queueSettings[0]; // Ambil slot pertama sebagai fallback
+            baseDate.setDate(baseDate.getDate() + 1);
+            const nextDayOfWeek = baseDate.getDay();
+            candidate = queueSettings.find((q) => q.day_of_week === nextDayOfWeek) || queueSettings[0];
           }
 
           if (candidate && candidate.time_slot) {
@@ -83,16 +89,9 @@ export async function POST(request) {
         }
 
         if (nextSlotTimeStr) {
-          // Gabungkan tarikh rujukan dengan time_slot dari database (HH:MM:SS)
           const [hours, minutes, seconds] = nextSlotTimeStr.split(':');
           baseDate.setHours(parseInt(hours, 10), parseInt(minutes, 10), parseInt(seconds || 0, 10), 0);
-          
-          // Jika masa yang dikira sudah lepas, anjakkan ke hari esok pada slot tersebut
-          if (baseDate <= new Date() && (!lastPosts || lastPosts.length === 0)) {
-            baseDate.setDate(baseDate.getDate() + 1);
-          }
         } else {
-          // Fallback jika tiada timeslot dijumpai
           baseDate.setMinutes(baseDate.getMinutes() + 30);
         }
 
