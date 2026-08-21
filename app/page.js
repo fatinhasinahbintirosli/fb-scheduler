@@ -13,6 +13,7 @@ export default function Home() {
   const [firstComment, setFirstComment] = useState('');
   const [commentImageUrl, setCommentImageUrl] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
+  const [postMode, setPostMode] = useState('now'); // 'now', 'manual', 'auto'
   const [scheduledPosts, setScheduledPosts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fetchingPages, setFetchingPages] = useState(true);
@@ -65,6 +66,10 @@ export default function Home() {
 
     setLoading(true);
     
+    let finalScheduledAt = scheduledAt || null;
+
+    // Jika pilih Auto-Queue Last, kita boleh tetapkan nilai atau endpoint khas jika perlu, 
+    // atau biarkan backend uruskan berdasarkan logik queue anda.
     const payload = {
       pageIds: selectedPages,
       message: message,
@@ -72,7 +77,7 @@ export default function Home() {
       videoUrl: videoUrl || null,
       firstComment: firstComment || null,
       commentImageUrl: commentImageUrl || null,
-      scheduledAt: scheduledAt || null,
+      scheduledAt: postMode === 'auto' ? 'auto-queue' : finalScheduledAt,
     };
 
     try {
@@ -224,22 +229,56 @@ export default function Home() {
             />
           </div>
 
-          <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Jadualkan Masa (Kosongkan jika mahu pos sekarang):</label>
-            <input 
-              type="datetime-local" 
-              value={scheduledAt} 
-              onChange={(e) => setScheduledAt(e.target.value)} 
-              style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc' }} 
-            />
+          {/* Pilihan Mod Pos (Pos Sekarang / Jadual Manual / Auto-Queue Last) */}
+          <div style={{ marginBottom: '15px', display: 'flex', gap: '20px', alignItems: 'center' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+              <input 
+                type="radio" 
+                name="postMode" 
+                checked={postMode === 'now'} 
+                onChange={() => { setPostMode('now'); setScheduledAt(''); }} 
+              />
+              Pos Sekarang
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+              <input 
+                type="radio" 
+                name="postMode" 
+                checked={postMode === 'manual'} 
+                onChange={() => setPostMode('manual')} 
+              />
+              Jadual Manual
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+              <input 
+                type="radio" 
+                name="postMode" 
+                checked={postMode === 'auto'} 
+                onChange={() => { setPostMode('auto'); setScheduledAt(''); }} 
+              />
+              Auto-Queue Last
+            </label>
           </div>
+
+          {/* Papar input masa hanya jika pilih Jadual Manual */}
+          {postMode === 'manual' && (
+            <div style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Pilih Masa Jadual:</label>
+              <input 
+                type="datetime-local" 
+                value={scheduledAt} 
+                onChange={(e) => setScheduledAt(e.target.value)} 
+                style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc' }} 
+              />
+            </div>
+          )}
           
           <button 
             type="submit" 
             disabled={loading} 
             style={{ width: '100%', padding: '12px', background: '#0070f3', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: 'bold', cursor: 'pointer' }}
           >
-            {loading ? 'Memproses...' : (scheduledAt ? 'Jadualkan Pos' : 'Hantar Sekarang')}
+            {loading ? 'Memproses...' : (postMode === 'now' ? 'Hantar Sekarang' : (postMode === 'auto' ? 'Masukkan ke Auto-Queue' : 'Jadualkan Pos'))}
           </button>
         </form>
       </section>
@@ -263,7 +302,7 @@ export default function Home() {
                 scheduledPosts.map(p => (
                   <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
                     <td style={{ padding: '10px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.message || '(Tiada teks)'}</td>
-                    <td style={{ padding: '10px' }}>{new Date(p.scheduled_at).toLocaleString()}</td>
+                    <td style={{ padding: '10px' }}>{p.scheduled_at ? new Date(p.scheduled_at).toLocaleString() : '-'}</td>
                     <td style={{ padding: '10px' }}>
                       <span style={{ 
                         padding: '3px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold',
