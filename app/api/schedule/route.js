@@ -5,8 +5,9 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request) {
   try {
+    // Pastikan ia menggunakan Service Role Key jika ada supaya mempunyai kebenaran penuh memadam storage
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json({ error: 'Kunci Supabase belum ditetapkan.' }, { status: 500 });
@@ -22,17 +23,16 @@ export async function POST(request) {
     }
 
     const { pageIds, message, imageUrl, videoUrl, firstComment, commentImageUrl, scheduledAt, profile } = body;
-    const activeProfile = profile || 'Fatin'; // Default profil jika tiada
+    const activeProfile = profile || 'Fatin';
 
     if (!pageIds || !Array.isArray(pageIds) || pageIds.length === 0) {
       return NextResponse.json({ error: 'Sila pilih sekurang-kurangnya satu Facebook Page.' }, { status: 400 });
     }
 
-    if (scheduledAt) {
-      let targetScheduledTime;
+    let targetScheduledTime = null;
 
+    if (scheduledAt) {
       if (scheduledAt === 'auto-queue') {
-        // 1. Dapatkan pos 'pending' yang terakhir mengikut profil yang sama
         const { data: lastPosts } = await supabase
           .from('scheduled_posts')
           .select('scheduled_at')
@@ -41,7 +41,6 @@ export async function POST(request) {
           .order('scheduled_at', { ascending: false })
           .limit(1);
 
-        // 2. Dapatkan senarai timeslot aktif KHUSUS untuk profil ini dari queue_settings
         const { data: queueSettings } = await supabase
           .from('queue_settings')
           .select('*')
@@ -142,60 +141,65 @@ export async function POST(request) {
         }
         targetScheduledTime = parsedDate.toISOString();
       }
-
-      const { error: insertError } = await supabase.from('scheduled_posts').insert({
-        page_ids: pageIds,
-        message: message || '',
-        image_url: imageUrl || null,
-        video_url: videoUrl || null,
-        first_comment: firstComment || null,
-        comment_image_url: commentImageUrl || null,
-        scheduled_at: targetScheduledTime,
-        status: 'pending',
-        profile: activeProfile, // Simpan profil sekali
-      });
-
-      if (insertError) {
-        return NextResponse.json({ error: `Gagal menjadualkan pos: ${insertError.message}` }, { status: 500 });
-      }
-
-      // ==========================================
-      // AUTO-DELETE FAIL DARI SUPABASE STORAGE
-      // ==========================================
-      const mediaToCheck = [imageUrl, videoUrl, commentImageUrl];
-      
-      for (const mediaUrl of mediaToCheck) {
-        if (mediaUrl && mediaUrl.includes('supabase.co')) {
-          try {
-            const marker = '/post-media/';
-            const markerIndex = mediaUrl.indexOf(marker);
-            
-            if (markerIndex !== -1) {
-              const filePath = mediaUrl.substring(markerIndex + marker.length);
-              const decodedFilePath = decodeURIComponent(filePath);
-
-              console.log(`Cuba memadam fail dari storage: ${decodedFilePath}`);
-
-              const { data, error: delError } = await supabase.storage
-                .from('post-media')
-                .remove([decodedFilePath]);
-
-              if (delError) {
-                console.error('Ralat Supabase Storage remove:', delError.message);
-              } else {
-                console.log('Berjaya padam fail:', data);
-              }
-            }
-          } catch (delErr) {
-            console.error('Gagal memproses pemadaman fail:', delErr.message);
-          }
-        }
-      }
-
-      return NextResponse.json({ scheduled: true, message: `Pos berjaya dimasukkan mengikut Auto-Queue (${activeProfile}) dan storan telah dibersihkan!` }, { status: 200 });
+    } else {
+      targetScheduledTime = new Date().toISOString();
     }
 
-    return NextResponse.json({ success: true }, { status: 200 });
+    // Masukkan ke dalam database
+    const { error: insertError } = await supabase.from('scheduled_posts').insert({
+      page_ids: pageIds,
+      message: message || '',
+      image_url: imageUrl || null,
+      video_url: videoUrl || null,
+      first_comment: firstComment || null,
+      comment_image_url: commentImageUrl || null,
+      scheduled_at: targetScheduledTime,
+      status: scheduledAt ? 'pending' : 'published',
+      profile: activeProfile,
+    });
+
+    if (insertError) {
+      return NextResponse.json({ error: `Gagal menjadualkan pos: ${insertError.message}` }, { status: 500 });
+    }
+
+    // ==========================================
+    // AUTO-DELETE FAIL DARI SUPABASE STORAGE (DILUAR SYARAT)
+    // ==========================================
+    const mediaToCheck = [imageUrl, videoUrl, commentImageUrl];
+    
+    for (const mediaUrl of mediaToCheck) {
+      if (mediaUrl && mediaUrl.includes('supabase.co')) {
+        try {
+          const marker = '/post-media/';
+          const markerIndex = mediaUrl.indexOf(marker);
+          
+          if (markerIndex !== -1) {
+            const filePath = mediaUrl.substring(markerIndex + marker.length);
+            const decodedFilePath = decodeURIComponent(filePath);
+
+            console.log(`Cuba memadam fail dari storage: ${decodedFilePath}`);
+
+            const { data, error: delError } = await supabase.storage
+              .from('post-media')
+              .remove([decodedFilePath]);
+
+            if (delError) {
+              console.error('Ralat Supabase Storage remove:', delError.message);
+            } else {
+              console.log('Berjaya padam fail:', data);
+            }
+          }
+        } catch (delErr) {
+          console.error('Gagal memproses pemadaman fail:', delErr.message);
+        }
+      }
+    }
+
+    return NextResponse.json({ 
+      success: true, 
+      message: `Pos berjaya diproses (${activeProfile}) dan fail media storan telah dibersihkan!` 
+    }, { status: 200 });
+
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Ralat dalaman server.' }, { status: 500 });
   }
@@ -204,7 +208,7 @@ export async function POST(request) {
 export async function DELETE(request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json({ error: 'Kunci Supabase belum ditetapkan.' }, { status: 500 });
