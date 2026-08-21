@@ -159,7 +159,25 @@ export async function POST(request) {
         return NextResponse.json({ error: `Gagal menjadualkan pos: ${insertError.message}` }, { status: 500 });
       }
 
-      return NextResponse.json({ scheduled: true, message: `Pos berjaya dimasukkan mengikut Auto-Queue (${activeProfile})!` }, { status: 200 });
+      // ==========================================
+      // AUTO-DELETE FAIL DARI SUPABASE STORAGE
+      // ==========================================
+      const mediaToCheck = [imageUrl, videoUrl, commentImageUrl];
+      for (const mediaUrl of mediaToCheck) {
+        if (mediaUrl && mediaUrl.includes('supabase.co/storage')) {
+          try {
+            const pathParts = mediaUrl.split('/post-media/');
+            if (pathParts.length > 1) {
+              const filePath = pathParts[1];
+              await supabase.storage.from('post-media').remove([filePath]);
+            }
+          } catch (delErr) {
+            console.error('Gagal memadam fail dari storage:', delErr.message);
+          }
+        }
+      }
+
+      return NextResponse.json({ scheduled: true, message: `Pos berjaya dimasukkan mengikut Auto-Queue (${activeProfile}) dan storan telah dibersihkan!` }, { status: 200 });
     }
 
     return NextResponse.json({ success: true }, { status: 200 });
