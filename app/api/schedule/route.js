@@ -48,10 +48,15 @@ export async function POST(request) {
           .select('*')
           .eq('is_active', true);
 
-        let baseDate = new Date();
+        // Dapatkan masa semasa dalam zon masa Malaysia (UTC+8)
+        const nowUTC = new Date();
+        const localTimeStr = nowUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
+        let baseDate = new Date(localTimeStr);
         
         if (lastPosts && lastPosts.length > 0 && lastPosts[0].scheduled_at) {
-          const lastDate = new Date(lastPosts[0].scheduled_at);
+          const lastDateUTC = new Date(lastPosts[0].scheduled_at);
+          const lastLocalStr = lastDateUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
+          const lastDate = new Date(lastLocalStr);
           if (!isNaN(lastDate.getTime())) {
             baseDate = lastDate;
           }
@@ -62,10 +67,8 @@ export async function POST(request) {
         if (queueSettings && queueSettings.length > 0) {
           const currentDayOfWeek = baseDate.getDay();
           
-          // Tukar semua slot kepada minit dari tengah malam untuk perbandingan tepat (elak masalah 2:30 PM vs 03:00 PM)
           const parseTimeToMinutes = (timeStr) => {
             if (!timeStr) return 0;
-            // Jika format ada AM/PM (contoh: "02:30 PM")
             if (timeStr.includes('M')) {
               const [timePart, modifier] = timeStr.split(' ');
               let [hours, minutes] = timePart.split(':').map(Number);
@@ -73,14 +76,12 @@ export async function POST(request) {
               if (modifier === 'AM' && hours === 12) hours = 0;
               return hours * 60 + minutes;
             }
-            // Format 24 jam ("14:30:00")
             const parts = timeStr.split(':').map(Number);
             return parts[0] * 60 + (parts[1] || 0);
           };
 
           const baseMinutes = baseDate.getHours() * 60 + baseDate.getMinutes();
 
-          // Tapis slot untuk hari yang sama yang masanya LEBIH LEWAT daripada pos terakhir
           const todaySlots = queueSettings
             .filter((q) => q.day_of_week === currentDayOfWeek)
             .map((q) => ({ ...q, totalMinutes: parseTimeToMinutes(q.time_slot) }))
@@ -88,7 +89,6 @@ export async function POST(request) {
 
           let candidate = todaySlots.find((q) => q.totalMinutes > baseMinutes);
 
-          // Jika tiada slot lewat hari ini, ambil slot pertama hari esok
           if (!candidate) {
             baseDate.setDate(baseDate.getDate() + 1);
             baseDate.setHours(0, 0, 0, 0);
@@ -107,23 +107,35 @@ export async function POST(request) {
           }
         }
 
+        let targetHours = 15; // default 3 PM
+        let targetMinutes = 0;
+
         if (nextSlotTimeStr) {
-          // Masukkan masa ke baseDate
           if (nextSlotTimeStr.includes('M')) {
             const [timePart, modifier] = nextSlotTimeStr.split(' ');
             let [hours, minutes] = timePart.split(':').map(Number);
             if (modifier === 'PM' && hours < 12) hours += 12;
             if (modifier === 'AM' && hours === 12) hours = 0;
-            baseDate.setHours(hours, minutes, 0, 0);
+            targetHours = hours;
+            targetMinutes = minutes;
           } else {
-            const [hours, minutes, seconds] = nextSlotTimeStr.split(':');
-            baseDate.setHours(parseInt(hours, 10), parseInt(minutes, 10), parseInt(seconds || 0, 10), 0);
+            const [hours, minutes] = nextSlotTimeStr.split(':').map(Number);
+            targetHours = hours;
+            targetMinutes = minutes || 0;
           }
-        } else {
-          baseDate.setMinutes(baseDate.getMinutes() + 30);
         }
 
-        targetScheduledTime = baseDate.toISOString();
+        baseDate.setHours(targetHours, targetMinutes, 0, 0);
+
+        // Tukar semula ke format ISO UTC dengan betul (+08:00)
+        const year = baseDate.getFullYear();
+        const month = String(baseDate.getMonth() + 1).padStart(2, '0');
+        const day = String(baseDate.getDate()).padStart(2, '0');
+        const hours = String(baseDate.getHours()).padStart(2, '0');
+        const minutes = String(baseDate.getMinutes()).padStart(2, '0');
+        const seconds = String(baseDate.getSeconds()).padStart(2, '0');
+
+        targetScheduledTime = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+08:00`;
       } else {
         const formattedScheduledAt = scheduledAt.endsWith('Z') || scheduledAt.includes('+') ? scheduledAt : `${scheduledAt}:00+08:00`;
         const parsedDate = new Date(formattedScheduledAt);
@@ -149,16 +161,6 @@ export async function POST(request) {
       }
 
       return NextResponse.json({ scheduled: true, message: 'Pos berjaya dimasukkan mengikut Auto-Queue timeslot!' }, { status: 200 });
-    }
-
-    // Pos serta-merta
-    const { data: pages, error: dbError } = await supabase
-      .from('pages')
-      .select('page_id, page_name, access_token')
-      .in('page_id', pageIds);
-
-    if (dbError || !pages || pages.length === 0) {
-      return NextResponse.json({ error: 'Gagal mendapatkan data Page.' }, { status: 500 });
     }
 
     return NextResponse.json({ success: true }, { status: 200 });
