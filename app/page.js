@@ -56,6 +56,26 @@ export default function Home() {
     }
   };
 
+  // Fungsi untuk memadam pos / queue
+  const handleDeleteQueue = async (id) => {
+    if (!confirm('Adakah anda pasti mahu memadam pos/queue ini?')) return;
+
+    try {
+      const res = await fetch(`/api/schedule?id=${id}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || 'Gagal memadam pos.');
+
+      alert('Berjaya dipadam!');
+      // Kemaskini senarai pos di skrin
+      setScheduledPosts((prev) => prev.filter((p) => p.id !== id));
+    } catch (err) {
+      alert(`Ralat: ${err.message}`);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -68,8 +88,6 @@ export default function Home() {
     
     let finalScheduledAt = scheduledAt || null;
 
-    // Jika pilih Auto-Queue Last, kita boleh tetapkan nilai atau endpoint khas jika perlu, 
-    // atau biarkan backend uruskan berdasarkan logik queue anda.
     const payload = {
       pageIds: selectedPages,
       message: message,
@@ -229,7 +247,7 @@ export default function Home() {
             />
           </div>
 
-          {/* Pilihan Mod Pos (Pos Sekarang / Jadual Manual / Auto-Queue Last) */}
+          {/* Pilihan Mod Pos */}
           <div style={{ marginBottom: '15px', display: 'flex', gap: '20px', alignItems: 'center' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
               <input 
@@ -260,7 +278,6 @@ export default function Home() {
             </label>
           </div>
 
-          {/* Papar input masa hanya jika pilih Jadual Manual */}
           {postMode === 'manual' && (
             <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Pilih Masa Jadual:</label>
@@ -293,11 +310,12 @@ export default function Home() {
                 <th style={{ padding: '10px' }}>Mesej</th>
                 <th style={{ padding: '10px' }}>Masa</th>
                 <th style={{ padding: '10px' }}>Status</th>
+                <th style={{ padding: '10px', textAlign: 'center' }}>Tindakan</th>
               </tr>
             </thead>
             <tbody>
               {scheduledPosts.length === 0 ? (
-                <tr><td colSpan="3" style={{ padding: '15px', textAlign: 'center', color: '#777' }}>Tiada rekod pos.</td></tr>
+                <tr><td colSpan="4" style={{ padding: '15px', textAlign: 'center', color: '#777' }}>Tiada rekod pos.</td></tr>
               ) : (
                 scheduledPosts.map(p => (
                   <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
@@ -311,6 +329,25 @@ export default function Home() {
                       }}>
                         {p.status ? p.status.toUpperCase() : 'PENDING'}
                       </span>
+                    </td>
+                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                      {p.status === 'pending' && (
+                        <button
+                          onClick={() => handleDeleteQueue(p.id)}
+                          style={{
+                            background: '#dc3545',
+                            color: '#fff',
+                            border: 'none',
+                            padding: '5px 10px',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          Padam
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
