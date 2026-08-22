@@ -24,7 +24,7 @@ export default function DataDeletion() {
       <section style={{ marginBottom: '30px', background: '#f9f9f9', padding: '20px', borderRadius: '8px' }}>
         <h3>Hubungi Sokongan</h3>
         <p style={{ margin: '5px 0' }}>Sebarang pertanyaan atau pengesahan pemadaman data boleh dihantar terus melalui emel:</p>
-        <p style={{ margin: '5px 0' }}><strong>Emel:</strong> ezhamdeli13@gmail.com</p>
+        <p style={{ margin: '5px 0' }}><strong>Emel:</strong> admin@maxbagindatrading.com</p>
       </section>
 
       <footer style={{ borderTop: '1px solid #eaeaea', paddingTop: '20px', fontSize: '14px', color: '#666' }}>
