@@ -144,6 +144,10 @@ export async function POST(request) {
       targetScheduledTime = new Date().toISOString();
     }
 
+    // Tetapkan status kepada 'pending' untuk semua jenis pos (termasuk Post Now)
+    // supaya sistem cron dapat memproses dan menghantarnya terus ke Facebook.
+    const postStatus = 'pending';
+
     // Masukkan ke dalam database
     const { error: insertError } = await supabase.from('scheduled_posts').insert({
       page_ids: pageIds,
@@ -153,7 +157,7 @@ export async function POST(request) {
       first_comment: firstComment || null,
       comment_image_url: commentImageUrl || null,
       scheduled_at: targetScheduledTime,
-      status: scheduledAt ? 'pending' : 'published',
+      status: postStatus,
       profile: activeProfile,
     });
 
@@ -163,7 +167,7 @@ export async function POST(request) {
 
     return NextResponse.json({ 
       success: true, 
-      message: `Pos berjaya dijadualkan (${activeProfile})!` 
+      message: `Pos berjaya dihantar/dijadualkan (${activeProfile})!` 
     }, { status: 200 });
 
   } catch (error) {
