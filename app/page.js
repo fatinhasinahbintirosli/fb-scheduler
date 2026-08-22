@@ -21,7 +21,7 @@ export default function Home() {
 
       <section style={{ marginBottom: '30px', background: '#f9f9f9', padding: '20px', borderRadius: '8px' }}>
         <h3>Hubungi Kami</h3>
-        <p style={{ margin: '5px 0' }}><strong>Emel Rasmi:</strong> ezhamdeli13@gmail.com</p>
+        <p style={{ margin: '5px 0' }}><strong>Emel Rasmi:</strong> admin@maxbagindatrading.com</p>
         <p style={{ margin: '5px 0' }}><strong>Alamat Operasi:</strong> Perak, Malaysia</p>
       </section>
 
