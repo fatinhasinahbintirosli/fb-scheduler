@@ -1,147 +1,304 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
+import Link from 'next/link';
 
-export default function FacebookScheduler() {
-  // Contoh state ringkas untuk simulasi muka depan scheduler
-  const [currentProfile, setCurrentProfile] = useState('Fatin');
-  const [message, setMessage] = useState('');
+export default function SchedulerPage() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [loginError, setLoginError] = useState(false);
+
+  // Gantikan kata laluan ini dengan pilihan anda
+  const CORRECT_PASSWORD = 'maxbaginda2026';
+
+  const [pages, setPages] = useState([]);
   const [selectedPages, setSelectedPages] = useState([]);
+  const [message, setMessage] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  const [commentImageUrl, setCommentImageUrl] = useState('');
+  const [firstComment, setFirstComment] = useState('');
+  const [scheduledAt, setScheduledAt] = useState('');
+  const [postMode, setPostMode] = useState('now'); 
+  const [currentProfile, setCurrentProfile] = useState('Fatin');
+  const [loading, setLoading] = useState(false);
+  const [fileUploading, setFileUploading] = useState(false);
+  const [fetchingPages, setFetchingPages] = useState(true);
 
-  const handleLogout = () => {
-    // Padam data sesi / token simpanan tempatan (jika ada)
-    if (typeof window !== 'undefined') {
-      localStorage.clear();
-      sessionStorage.clear();
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL, 
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+
+  useEffect(() => {
+    // Semak jika sudah login sebelum ini dalam sesi pelayar yang sama
+    const authStatus = sessionStorage.getItem('scheduler_auth');
+    if (authStatus === 'true') {
+      setIsAuthenticated(true);
     }
-    // Lakukan lencongan (redirect) ke halaman utama atau log masuk
-    window.location.href = '/';
+
+    const savedProfile = localStorage.getItem('fb_scheduler_profile') || 'Fatin';
+    setCurrentProfile(savedProfile);
+
+    async function initData() {
+      const { data: pData } = await supabase.from('pages').select('page_id, page_name').order('page_name', { ascending: true });
+      setPages(pData || []);
+      setFetchingPages(false);
+    }
+    initData();
+  }, []);
+
+  const handleLoginSubmit = (e) => {
+    e.preventDefault();
+    if (passwordInput === CORRECT_PASSWORD) {
+      setIsAuthenticated(true);
+      sessionStorage.setItem('scheduler_auth', 'true');
+      setLoginError(false);
+    } else {
+      setLoginError(true);
+    }
   };
 
-  return (
-    <main style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', color: '#1f2937', lineHeight: '1.6', margin: 0, padding: '20px', background: '#f8f9fa', minHeight: '100vh' }}>
+  const handleProfileChange = (profileName) => {
+    setCurrentProfile(profileName);
+    localStorage.setItem('fb_scheduler_profile', profileName);
+  };
+
+  const handleSelectAll = () => {
+    setSelectedPages(selectedPages.length === pages.length ? [] : pages.map(p => p.page_id));
+  };
+
+  const handlePageToggle = (pageId) => {
+    setSelectedPages(selectedPages.includes(pageId) ? selectedPages.filter(id => id !== pageId) : [...selectedPages, pageId]);
+  };
+
+  const handleFileUpload = async (e, setUrlState) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setFileUploading(true);
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
+    
+    const { error } = await supabase.storage
+      .from('post-media')
+      .upload(fileName, file);
+
+    if (error) {
+      alert('Gagal memuat naik fail: ' + error.message);
+    } else {
+      const { data: publicUrlData } = supabase.storage.from('post-media').getPublicUrl(fileName);
+      setUrlState(publicUrlData.publicUrl);
+    }
+    setFileUploading(false);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (selectedPages.length === 0) return alert('Sila pilih sekurang-kurangnya satu Facebook Page.');
+
+    setLoading(true);
+    
+    let finalImageUrl = imageUrl || null;
+    let finalVideoUrl = null;
+
+    if (finalImageUrl) {
+      const lowerUrl = finalImageUrl.toLowerCase();
+      if (lowerUrl.endsWith('.mp4') || lowerUrl.includes('video') || lowerUrl.includes('.mov') || lowerUrl.includes('.webm')) {
+        finalVideoUrl = finalImageUrl;
+        finalImageUrl = null;
+      }
+    }
+
+    const payload = {
+      pageIds: selectedPages,
+      message,
+      imageUrl: finalImageUrl,
+      videoUrl: finalVideoUrl,
+      firstComment: firstComment || null,
+      commentImageUrl: commentImageUrl || null,
+      scheduledAt: postMode === 'auto' ? 'auto-queue' : (scheduledAt || null),
+      profile: currentProfile,
+    };
+
+    try {
+      const res = await fetch('/api/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      alert(data.message || 'Berjaya!');
       
-      {/* Bar Atas: Profil & Navigasi */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', background: '#fff', padding: '15px 20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontWeight: 'bold' }}>👤 Profil Pengguna Semasa:</span>
-          <span style={{ background: '#dbeafe', color: '#1e40af', padding: '4px 12px', borderRadius: '15px', fontSize: '14px', fontWeight: 'bold' }}>
-            {currentProfile}
-          </span>
-          <div style={{ display: 'flex', gap: '5px', marginLeft: '15px' }}>
-            <button onClick={() => setCurrentProfile('Fatin')} style={{ padding: '4px 10px', fontSize: '12px', cursor: 'pointer', background: currentProfile === 'Fatin' ? '#2563eb' : '#e5e7eb', color: currentProfile === 'Fatin' ? '#fff' : '#333', border: 'none', borderRadius: '4px' }}>Profil Fatin</button>
-            <button onClick={() => setCurrentProfile('Adik')} style={{ padding: '4px 10px', fontSize: '12px', cursor: 'pointer', background: currentProfile === 'Adik' ? '#2563eb' : '#e5e7eb', color: currentProfile === 'Adik' ? '#fff' : '#333', border: 'none', borderRadius: '4px' }}>Profil Adik</button>
-          </div>
-        </div>
+      setMessage(''); 
+      setImageUrl(''); 
+      setFirstComment(''); 
+      setCommentImageUrl('');
+    } catch (err) {
+      alert(`Ralat: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        {/* Bahagian Butang Navigasi & Log Keluar */}
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          <a 
-            href="/" 
-            style={{ background: '#4b5563', color: '#fff', padding: '8px 16px', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold', display: 'inline-block' }}
-          >
-            🏠 Laman Utama
-          </a>
-          <button 
-            onClick={handleLogout}
-            style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
-          >
-            🚪 Log Keluar
+  // Jika belum disahkan (belum login), paparkan skrin kata laluan
+  if (!isAuthenticated) {
+    return (
+      <main style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif', background: '#f4f4f4' }}>
+        <form onSubmit={handleLoginSubmit} style={{ background: '#fff', padding: '30px', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', width: '100%', maxWidth: '350px', textAlign: 'center' }}>
+          <h2 style={{ marginBottom: '10px', color: '#111' }}>Max Baginda Trading</h2>
+          <p style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>Sila masukkan kata laluan untuk mengakses modul Scheduler.</p>
+          
+          <input 
+            type="password" 
+            placeholder="Kata laluan..." 
+            value={passwordInput}
+            onChange={(e) => setPasswordInput(e.target.value)}
+            style={{ width: '100%', padding: '10px', marginBottom: '15px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+          />
+          
+          {loginError && <p style={{ color: 'red', fontSize: '13px', marginBottom: '15px' }}>Kata laluan salah!</p>}
+          
+          <button type="submit" style={{ width: '100%', background: '#0d6efd', color: '#fff', padding: '10px', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
+            Log Masuk
           </button>
+          
+          <div style={{ marginTop: '20px' }}>
+            <a href="/" style={{ fontSize: '13px', color: '#666', textDecoration: 'none' }}>← Kembali ke Laman Utama</a>
+          </div>
+        </form>
+      </main>
+    );
+  }
+
+  // Antaramuka asal sistem scheduler jika sudah berjaya login
+  return (
+    <main style={{ maxWidth: '900px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
+      
+      {/* Profil Selector */}
+      <div style={{ background: '#e7f3ff', padding: '15px', borderRadius: '10px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div><strong>👤 Profil Pengguna Semasa:</strong> {currentProfile}</div>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button type="button" onClick={() => handleProfileChange('Fatin')} style={{ padding: '6px 12px', background: currentProfile === 'Fatin' ? '#0d6efd' : '#fff', color: currentProfile === 'Fatin' ? '#fff' : '#000', borderRadius: '5px', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>Profil Fatin</button>
+          <button type="button" onClick={() => handleProfileChange('Adik')} style={{ padding: '6px 12px', background: currentProfile === 'Adik' ? '#198754' : '#fff', color: currentProfile === 'Adik' ? '#fff' : '#000', borderRadius: '5px', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>Profil Adik</button>
         </div>
       </div>
 
-      {/* Butang Tindakan Pantas */}
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-        <button style={{ background: '#374151', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}>
-          ⚙️ Update Time Slots ({currentProfile})
-        </button>
-        <button style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}>
-          📋 Lihat Senarai Queue
-        </button>
+      <div style={{ marginBottom: '20px', display: 'flex', gap: '10px', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <Link href="/queue-settings" style={{ padding: '8px 14px', background: '#333', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>⚙️ Update Time Slots ({currentProfile})</Link>
+          <Link href="/queue" style={{ padding: '8px 14px', background: '#1877f2', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>📋 Lihat Senarai Queue</Link>
+        </div>
+        <a href="/" style={{ padding: '8px 14px', background: '#6c757d', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>🏠 Laman Utama</a>
       </div>
 
-      <h1 style={{ color: '#2563eb', fontSize: '28px', marginBottom: '20px' }}>Facebook Scheduler</h1>
+      <h1 style={{ color: '#1877f2' }}>Facebook Scheduler</h1>
 
-      {/* Kotak Utama Borang */}
-      <div style={{ background: '#fff', padding: '25px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb' }}>
+      <form onSubmit={handleSubmit} style={{ background: '#f4f4f4', padding: '20px', borderRadius: '8px' }}>
         
         {/* Pilih Pages */}
         <div style={{ marginBottom: '20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-            <label style={{ fontWeight: 'bold', fontSize: '14px' }}>Pilih Pages (0/25):</label>
-            <span style={{ color: '#2563eb', fontSize: '13px', cursor: 'pointer' }}>Pilih Semua</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <label style={{ fontWeight: 'bold' }}>Pilih Pages ({selectedPages.length}/{pages.length}):</label>
+            <button type="button" onClick={handleSelectAll} style={{ fontSize: '12px', background: 'none', border: 'none', color: '#1877f2', cursor: 'pointer', textDecoration: 'underline' }}>
+              {selectedPages.length === pages.length ? 'Nyahpilih Semua' : 'Pilih Semua'}
+            </button>
           </div>
-          <div style={{ border: '1px solid #d1d5db', borderRadius: '6px', padding: '15px', maxHeight: '180px', overflowY: 'auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', background: '#fafafa' }}>
-            {['Ahmad Studio', 'Aniq Suhair', 'Berita Terkini', 'CIK AFIYA', 'Fadli Che', 'Hari ini Malaysia', 'Aisar Khaledd Fans', 'Bazookapenaka Media', 'Blog Mazeer', 'Clearwhitez Skinbooster HQ', 'Gempak Media', 'Kaki Viral Media'].map((page, idx) => (
-              <label key={idx} style={{ fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                <input type="checkbox" /> {page}
-              </label>
-            ))}
-          </div>
+          {fetchingPages ? (
+            <p style={{ fontSize: '13px' }}>Memuatkan senarai page...</p>
+          ) : (
+            <div style={{ height: '150px', overflowY: 'auto', background: '#fff', padding: '10px', border: '1px solid #ccc', borderRadius: '6px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              {pages.map(p => (
+                <label key={p.page_id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={selectedPages.includes(p.page_id)} onChange={() => handlePageToggle(p.page_id)} />
+                  {p.page_name}
+                </label>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Kapsyen */}
-        <div style={{ marginBottom: '20px' }}>
-          <label style={{ display: 'block', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>Kapsyen:</label>
-          <textarea 
-            rows="4" 
-            placeholder="Tulis kapsyen pos anda..." 
-            style={{ width: '100%', padding: '12px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '14px', boxSizing: 'border-box' }}
-          ></textarea>
+        <div style={{ marginBottom: '15px' }}>
+          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Kapsyen:</label>
+          <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Tulis kapsyen pos anda..." style={{ width: '100%', height: '90px', padding: '8px', borderRadius: '6px', border: '1px solid #ccc' }} />
         </div>
 
-        {/* Upload Gambar / Video Utama */}
-        <div style={{ marginBottom: '20px' }}>
-          <label style={{ display: 'block', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>Upload Gambar / Video Utama (Pilihan):</label>
-          <input type="file" style={{ marginBottom: '8px', display: 'block' }} />
+        {/* Upload Media Utama (Gambar / Video) */}
+        <div style={{ marginBottom: '15px' }}>
+          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Upload Gambar / Video Utama (Pilihan):</label>
+          <input 
+            type="file" 
+            accept="image/*,video/*"
+            onChange={(e) => handleFileUpload(e, setImageUrl)} 
+            disabled={fileUploading}
+            style={{ marginBottom: '5px', display: 'block' }} 
+          />
           <input 
             type="text" 
+            value={imageUrl} 
+            onChange={e => setImageUrl(e.target.value)} 
             placeholder="Atau salin/tampal URL gambar/video di sini..." 
-            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px', boxSizing: 'border-box' }}
+            style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ccc' }} 
           />
+          {fileUploading && <small style={{ color: '#0d6efd' }}>Sedang memuat naik fail ke storage...</small>}
         </div>
 
         {/* First Comment */}
-        <div style={{ marginBottom: '20px' }}>
-          <label style={{ display: 'block', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>First Comment (Komen Pertama):</label>
-          <textarea 
-            rows="3" 
-            placeholder="Tulis komen pertama (pilihan)..." 
-            style={{ width: '100%', padding: '12px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '14px', boxSizing: 'border-box' }}
-          ></textarea>
+        <div style={{ marginBottom: '15px' }}>
+          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>First Comment (Komen Pertama):</label>
+          <textarea value={firstComment} onChange={e => setFirstComment(e.target.value)} placeholder="Tulis komen pertama (pilihan)..." style={{ width: '100%', height: '60px', padding: '8px', borderRadius: '6px', border: '1px solid #ccc' }} />
         </div>
 
-        {/* Upload Gambar untuk First Comment */}
+        {/* Comment Image URL */}
         <div style={{ marginBottom: '20px' }}>
-          <label style={{ display: 'block', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>Upload Gambar untuk First Comment (Pilihan):</label>
-          <input type="file" style={{ marginBottom: '8px', display: 'block' }} />
+          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Upload Gambar untuk First Comment (Pilihan):</label>
+          <input 
+            type="file" 
+            accept="image/*"
+            onChange={(e) => handleFileUpload(e, setCommentImageUrl)} 
+            disabled={fileUploading}
+            style={{ marginBottom: '5px', display: 'block' }} 
+          />
           <input 
             type="text" 
+            value={commentImageUrl} 
+            onChange={e => setCommentImageUrl(e.target.value)} 
             placeholder="Atau masukkan URL gambar komen..." 
-            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px', boxSizing: 'border-box' }}
+            style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ccc' }} 
           />
         </div>
 
-        {/* Pilihan Mod Penghantaran */}
-        <div style={{ display: 'flex', gap: '25px', marginBottom: '25px', alignItems: 'center' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
-            <input type="radio" name="mode" defaultChecked /> Pos Sekarang
+        {/* Pilihan Mod Hantaran */}
+        <div style={{ marginBottom: '20px', display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', fontWeight: 'bold' }}>
+            <input type="radio" name="postMode" checked={postMode === 'now'} onChange={() => { setPostMode('now'); setScheduledAt(''); }} /> Pos Sekarang
           </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
-            <input type="radio" name="mode" /> Jadual Manual
+          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', fontWeight: 'bold' }}>
+            <input type="radio" name="postMode" checked={postMode === 'manual'} onChange={() => setPostMode('manual')} /> Jadual Manual
           </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
-            <input type="radio" name="mode" /> Auto-Queue Last ({currentProfile})
+          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', fontWeight: 'bold' }}>
+            <input type="radio" name="postMode" checked={postMode === 'auto'} onChange={() => { setPostMode('auto'); setScheduledAt(''); }} /> Auto-Queue Last ({currentProfile})
           </label>
         </div>
 
-        {/* Butang Hantar */}
-        <button style={{ width: '100%', background: '#2563eb', color: '#fff', border: 'none', padding: '14px', borderRadius: '6px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer', boxShadow: '0 4px 6px rgba(37,99,235,0.2)' }}>
-          Hantar Sekarang
-        </button>
+        {postMode === 'manual' && (
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Pilih Tarikh & Masa:</label>
+            <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc' }} />
+          </div>
+        )}
 
-      </div>
+        <button 
+          type="submit" 
+          disabled={loading || fileUploading} 
+          style={{ width: '100%', padding: '12px', background: '#0d6efd', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '15px', cursor: 'pointer' }}
+        >
+          {loading ? 'Memproses...' : (postMode === 'now' ? 'Hantar Sekarang' : `Masukkan ke Auto-Queue (${currentProfile})`)}
+        </button>
+      </form>
     </main>
   );
 }
