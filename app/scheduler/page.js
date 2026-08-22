@@ -59,6 +59,13 @@ export default function SchedulerPage() {
     }
   };
 
+  // Fungsi Log Keluar (Logout)
+  const handleLogout = () => {
+    sessionStorage.removeItem('scheduler_auth');
+    setIsAuthenticated(false);
+    setPasswordInput('');
+  };
+
   const handleProfileChange = (profileName) => {
     setCurrentProfile(profileName);
     localStorage.setItem('fb_scheduler_profile', profileName);
@@ -191,7 +198,10 @@ export default function SchedulerPage() {
           <Link href="/queue-settings" style={{ padding: '8px 14px', background: '#333', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>⚙️ Update Time Slots ({currentProfile})</Link>
           <Link href="/queue" style={{ padding: '8px 14px', background: '#1877f2', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>📋 Lihat Senarai Queue</Link>
         </div>
-        <a href="/" style={{ padding: '8px 14px', background: '#6c757d', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>🏠 Laman Utama</a>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <a href="/" style={{ padding: '8px 14px', background: '#6c757d', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>🏠 Laman Utama</a>
+          <button onClick={handleLogout} style={{ padding: '8px 14px', background: '#dc3545', color: '#fff', borderRadius: '6px', border: 'none', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}>🔒 Log Keluar</button>
+        </div>
       </div>
 
       <h1 style={{ color: '#1877f2' }}>Facebook Scheduler</h1>
