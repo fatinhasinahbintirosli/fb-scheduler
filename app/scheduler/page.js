@@ -4,7 +4,14 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import Link from 'next/link';
 
-export default function Home() {
+export default function SchedulerPage() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [loginError, setLoginError] = useState(false);
+
+  // Gantikan kata laluan ini dengan pilihan anda
+  const CORRECT_PASSWORD = 'maohdfadliselangor1';
+
   const [pages, setPages] = useState([]);
   const [selectedPages, setSelectedPages] = useState([]);
   const [message, setMessage] = useState('');
@@ -24,6 +31,12 @@ export default function Home() {
   );
 
   useEffect(() => {
+    // Semak jika sudah login sebelum ini dalam sesi pelayar yang sama
+    const authStatus = sessionStorage.getItem('scheduler_auth');
+    if (authStatus === 'true') {
+      setIsAuthenticated(true);
+    }
+
     const savedProfile = localStorage.getItem('fb_scheduler_profile') || 'Fatin';
     setCurrentProfile(savedProfile);
 
@@ -34,6 +47,17 @@ export default function Home() {
     }
     initData();
   }, []);
+
+  const handleLoginSubmit = (e) => {
+    e.preventDefault();
+    if (passwordInput === CORRECT_PASSWORD) {
+      setIsAuthenticated(true);
+      sessionStorage.setItem('scheduler_auth', 'true');
+      setLoginError(false);
+    } else {
+      setLoginError(true);
+    }
+  };
 
   const handleProfileChange = (profileName) => {
     setCurrentProfile(profileName);
@@ -48,7 +72,6 @@ export default function Home() {
     setSelectedPages(selectedPages.includes(pageId) ? selectedPages.filter(id => id !== pageId) : [...selectedPages, pageId]);
   };
 
-  // Fungsi untuk memuat naik fail ke Supabase Storage (telah dibetulkan ralat sintaks)
   const handleFileUpload = async (e, setUrlState) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -57,7 +80,6 @@ export default function Home() {
     const fileExt = file.name.split('.').pop();
     const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
     
-    // Pastikan anda sudah buat bucket bernama 'post-media' di Supabase Storage
     const { error } = await supabase.storage
       .from('post-media')
       .upload(fileName, file);
@@ -110,7 +132,6 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error);
       alert(data.message || 'Berjaya!');
       
-      // Reset borang
       setMessage(''); 
       setImageUrl(''); 
       setFirstComment(''); 
@@ -122,6 +143,37 @@ export default function Home() {
     }
   };
 
+  // Jika belum disahkan (belum login), paparkan skrin kata laluan
+  if (!isAuthenticated) {
+    return (
+      <main style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif', background: '#f4f4f4' }}>
+        <form onSubmit={handleLoginSubmit} style={{ background: '#fff', padding: '30px', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', width: '100%', maxWidth: '350px', textAlign: 'center' }}>
+          <h2 style={{ marginBottom: '10px', color: '#111' }}>Max Baginda Trading</h2>
+          <p style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>Sila masukkan kata laluan untuk mengakses modul Scheduler.</p>
+          
+          <input 
+            type="password" 
+            placeholder="Kata laluan..." 
+            value={passwordInput}
+            onChange={(e) => setPasswordInput(e.target.value)}
+            style={{ width: '100%', padding: '10px', marginBottom: '15px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+          />
+          
+          {loginError && <p style={{ color: 'red', fontSize: '13px', marginBottom: '15px' }}>Kata laluan salah!</p>}
+          
+          <button type="submit" style={{ width: '100%', background: '#0d6efd', color: '#fff', padding: '10px', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
+            Log Masuk
+          </button>
+          
+          <div style={{ marginTop: '20px' }}>
+            <a href="/" style={{ fontSize: '13px', color: '#666', textDecoration: 'none' }}>← Kembali ke Laman Utama</a>
+          </div>
+        </form>
+      </main>
+    );
+  }
+
+  // Antaramuka asal sistem scheduler jika sudah berjaya login
   return (
     <main style={{ maxWidth: '900px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       
@@ -134,9 +186,12 @@ export default function Home() {
         </div>
       </div>
 
-      <div style={{ marginBottom: '20px', display: 'flex', gap: '10px' }}>
-        <Link href="/queue-settings" style={{ padding: '8px 14px', background: '#333', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>⚙️ Update Time Slots ({currentProfile})</Link>
-        <Link href="/queue" style={{ padding: '8px 14px', background: '#1877f2', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>📋 Lihat Senarai Queue</Link>
+      <div style={{ marginBottom: '20px', display: 'flex', gap: '10px', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <Link href="/queue-settings" style={{ padding: '8px 14px', background: '#333', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>⚙️ Update Time Slots ({currentProfile})</Link>
+          <Link href="/queue" style={{ padding: '8px 14px', background: '#1877f2', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>📋 Lihat Senarai Queue</Link>
+        </div>
+        <a href="/" style={{ padding: '8px 14px', background: '#6c757d', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>🏠 Laman Utama</a>
       </div>
 
       <h1 style={{ color: '#1877f2' }}>Facebook Scheduler</h1>
