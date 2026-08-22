@@ -31,6 +31,7 @@ export async function GET(request) {
     }
 
     for (const item of postsToPublish) {
+      // Kunci pos kepada 'processing'
       const { error: lockError } = await supabase
         .from('scheduled_posts')
         .update({ status: 'processing' })
@@ -57,10 +58,10 @@ export async function GET(request) {
         continue;
       }
 
-      let isMainPostSuccessful = false;
       let errorLogs = [];
 
-      for (const page of pages) {
+      // PROSES HANTAR SERENTAK (PARALLEL) UNTUK SEMUA PAGE
+      const postPromises = pages.map(async (page) => {
         try {
           let postRes;
 
@@ -98,16 +99,12 @@ export async function GET(request) {
           const postData = await postRes.json();
 
           if (!postRes.ok || postData.error) {
-            errorLogs.push(`${page.page_name}: ${postData.error?.message || 'Gagal pos'}`);
-            continue;
+            return { success: false, log: `${page.page_name}: ${postData.error?.message || 'Gagal pos'}` };
           }
-
-          // Jika sampai sini, bermakna pos utama BERJAYA!
-          isMainPostSuccessful = true;
 
           // Proses First Comment jika ada
           if (item.first_comment || item.comment_image_url) {
-            await new Promise((resolve) => setTimeout(resolve, item.video_url ? 4000 : 2000));
+            await new Promise((resolve) => setTimeout(resolve, item.video_url ? 4000 : 1000));
             const targetCommentId = postData.post_id || postData.id;
 
             const commentPayload = { access_token: page.access_token };
@@ -121,15 +118,29 @@ export async function GET(request) {
             });
             const commentData = await commentRes.json();
             if (!commentRes.ok || commentData.error) {
-              errorLogs.push(`${page.page_name} (Komen): ${commentData.error?.message || 'Gagal hantar komen'}`);
+              return { success: true, log: `${page.page_name} (Komen Gagal): ${commentData.error?.message || 'Gagal hantar komen'}` };
             }
           }
+
+          return { success: true, log: null };
         } catch (err) {
-          errorLogs.push(`${page.page_name}: ${err.message}`);
+          return { success: false, log: `${page.page_name}: ${err.message}` };
+        }
+      });
+
+      // Tunggu semua page selesai hantar serentak
+      const results = await Promise.all(postPromises);
+
+      let isMainPostSuccessful = false;
+      for (const res of results) {
+        if (res.success) {
+          isMainPostSuccessful = true;
+        }
+        if (res.log) {
+          errorLogs.push(res.log);
         }
       }
 
-      // Asalkan pos utama berjaya naik ke Facebook, status dianggap 'published'
       const finalStatus = isMainPostSuccessful ? 'published' : 'failed';
 
       await supabase
@@ -140,9 +151,7 @@ export async function GET(request) {
         })
         .eq('id', item.id);
 
-      // ==========================================
-      // AUTO-DELETE FAIL DARI SUPABASE STORAGE 
-      // ==========================================
+      // AUTO-DELETE FAIL DARI SUPABASE STORAGE JIKA BERJAYA
       if (finalStatus === 'published') {
         const mediaToCheck = [item.image_url, item.video_url, item.comment_image_url];
         
@@ -156,17 +165,9 @@ export async function GET(request) {
                 const filePath = mediaUrl.substring(markerIndex + marker.length);
                 const decodedFilePath = decodeURIComponent(filePath);
 
-                console.log(`Cuba memadam fail dari storage: ${decodedFilePath}`);
-
-                const { data, error: delError } = await supabase.storage
+                await supabase.storage
                   .from('post-media')
                   .remove([decodedFilePath]);
-
-                if (delError) {
-                  console.error('Ralat Supabase Storage remove:', delError.message);
-                } else {
-                  console.log('Berjaya padam fail:', data);
-                }
               }
             } catch (delErr) {
               console.error('Gagal memproses pemadaman fail:', delErr.message);
@@ -176,7 +177,7 @@ export async function GET(request) {
       }
     }
 
-    return NextResponse.json({ message: 'Cron job selesai diproses.' });
+    return NextResponse.json({ message: 'Cron job selesai diproses secara serentak.' });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
