@@ -10,7 +10,7 @@ export default function SchedulerPage() {
   const [loginError, setLoginError] = useState(false);
 
   // Gantikan kata laluan ini dengan pilihan anda
-  const CORRECT_PASSWORD = 'maohdfadliselangor1';
+  const CORRECT_PASSWORD = 'mohdfadliselangor1';
 
   const [pages, setPages] = useState([]);
   const [selectedPages, setSelectedPages] = useState([]);
